@@ -1,0 +1,107 @@
+# Main Makefile for Hatari.
+
+# Use "export ENABLE_DSP_EMU=0" & "make clean"
+# to disable experimental DSP emulation code.
+ENABLE_DSP_EMU ?= 1
+
+# Select CPU directory:
+CPUDIR = uae-cpu
+
+# Include settings
+include ../Makefile.cnf
+
+# Additional include directories:
+CPPFLAGS += -I.. -I./includes -I$(CPUDIR) -I./falcon
+CPPFLAGS += -DCONFDIR=\"$(CONFDIR)\" $(SDL_CFLAGS)
+
+ifeq ($(ENABLE_DSP_EMU),1)
+CPPFLAGS += -DENABLE_DSP_EMU=1
+endif
+
+GUIOBJS = ./gui-sdl/dlgAbout.o ./gui-sdl/dlgAlert.o ./gui-sdl/dlgDevice.o \
+  ./gui-sdl/dlgDisk.o ./gui-sdl/dlgJoystick.o ./gui-sdl/dlgKeyboard.o \
+  ./gui-sdl/dlgMain.o ./gui-sdl/dlgMemory.o ./gui-sdl/dlgNewDisk.o \
+  ./gui-sdl/dlgRom.o ./gui-sdl/dlgScreen.o ./gui-sdl/dlgSound.o  \
+  ./gui-sdl/dlgSystem.o ./gui-sdl/dlgFileSelect.o ./gui-sdl/sdlgui.o
+
+GUIWINOBJS = ./gui-win/hatari-winicon.o ./gui-win/opencon.o
+
+FALCOBJS = ./falcon/videl.o ./falcon/hostscreen.o ./falcon/nvram.o
+ifeq ($(ENABLE_DSP_EMU),1)
+FALCOBJS += ./falcon/dsp.o ./falcon/dsp_core.o \
+            ./falcon/dsp_cpu.o ./falcon/dsp_disasm.o
+endif
+
+SRCS = audio.c bios.c blitter.c cart.c cfgopts.c configuration.c options.c \
+  createBlankImage.c change.c control.c cycles.c debugui.c dialog.c dim.c \
+  dmaSnd.c fdc.c file.c floppy.c gemdos.c hdc.c ide.c ikbd.c int.c ioMem.c \
+  ioMemTabST.c ioMemTabSTE.c ioMemTabTT.c ioMemTabFalcon.c joy.c keymap.c \
+  log.c m68000.c main.c midi.c memorySnapShot.c mfp.c msa.c paths.c \
+  psg.c printer.c rs232.c reset.c rtc.c scandir.c st.c stMemory.c screen.c \
+  screenSnapShot.c shortcut.c sound.c spec512.c statusbar.c str.c tos.c \
+  unzip.c utils.c vdi.c video.c wavFormat.c xbios.c ymFormat.c zip.c
+
+OBJS = $(SRCS:.c=.o)
+
+
+ALLOBJS = $(OBJS) $(GUIOBJS) $(CPUDIR)/cpu68k.a $(FALCOBJS)
+
+ifeq ($(SYS_WINDOWS),1)
+  ALLOBJS += $(GUIWINOBJS)
+else
+ifneq ($(strip $(shell gcc -v 2>&1 |grep "cygwin")),)
+  ALLOBJS += $(GUIWINOBJS)
+endif 
+endif
+
+
+all: hatari
+
+hatari: $(ALLOBJS)
+	$(CC) $(LDFLAGS) $(ALLOBJS) $(SDL_LIBS) $(LIBS) -o hatari
+
+# Sub-folder dependencies:
+.PHONY : $(CPUDIR)/cpu68k.a
+$(CPUDIR)/cpu68k.a:
+	$(MAKE) -C $(CPUDIR)
+
+gui-sdl/%.o: gui-sdl/%.c
+	$(MAKE) ENABLE_DSP_EMU=$(ENABLE_DSP_EMU) -C gui-sdl/ all
+
+gui-win/%.o:
+	$(MAKE) ENABLE_DSP_EMU=$(ENABLE_DSP_EMU) -C gui-win/ all
+
+falcon/%.o: falcon/%.c
+	$(MAKE) ENABLE_DSP_EMU=$(ENABLE_DSP_EMU) CPUDIR=$(CPUDIR) -C falcon/
+
+
+clean:
+	$(RM) *.o hatari
+	$(MAKE) -C gui-sdl/ clean
+	$(MAKE) -C gui-win/ clean
+	$(MAKE) -C $(CPUDIR) clean
+	$(MAKE) -C falcon/ clean
+
+distclean:
+	$(RM) *.o hatari
+	$(RM) Makefile.dep *~ *.bak *.orig
+	$(RM) convert/*~ convert/*.bak
+	$(MAKE) -C gui-sdl/ distclean
+	$(MAKE) -C gui-win/ distclean
+	$(MAKE) -C $(CPUDIR) distclean
+	$(MAKE) -C falcon/ distclean
+
+
+# Use "make depend" to generate file dependencies:
+Makefile.dep: Makefile
+	$(CC) -M $(CPPFLAGS) $(SRCS) > Makefile.dep
+
+depend: cleandeps Makefile.dep
+	$(MAKE) -C gui-sdl/ depend
+	$(MAKE) -C $(CPUDIR) depend
+	$(MAKE) -C falcon/ depend
+
+cleandeps:
+	$(RM) Makefile.dep */Makefile.dep
+
+-include Makefile.dep

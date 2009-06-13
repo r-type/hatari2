@@ -35,7 +35,7 @@
 #define SCANLINES_PER_FRAME_50HZ 313    /* Number of scan lines per frame in 50 Hz */
 #define SCANLINES_PER_FRAME_60HZ 263    /* Number of scan lines per frame in 60 Hz */
 #define SCANLINES_PER_FRAME_71HZ 501    /* could also be 500 ? */
-#define MAX_SCANLINES_PER_FRAME  313    /* Max. number of scan lines per frame */
+#define MAX_SCANLINES_PER_FRAME  SCANLINES_PER_FRAME_71HZ    /* Max. number of scan lines per frame */
 
 /* Cycles per line */
 #define CYCLES_PER_LINE_50HZ  512
@@ -70,21 +70,21 @@
 
 #define LINE_START_CYCLE_50	56
 #define LINE_START_CYCLE_60	52
-#define LINE_START_CYCLE_70	0
+#define LINE_START_CYCLE_71	0
 #define LINE_END_CYCLE_50	376		/* LINE_START_CYCLE_50 + 320 */
 #define LINE_END_CYCLE_60	372		/* LINE_START_CYCLE_60 + 320 */
-#define LINE_END_CYCLE_70	160
-#define LINE_END_CYCLE_NO_RIGHT	460
+#define LINE_END_CYCLE_71	160
+#define LINE_END_CYCLE_NO_RIGHT	460		/* 372 + 44*2 */
 #define LINE_END_CYCLE_50_2	(LINE_END_CYCLE_50+44*2)	/* used in enchanted lands */
 #define LINE_END_CYCLE_FULL	512				/* used in enchanted lands */
 #define LINE_SCROLL_13_CYCLE_50	20	/* 13 pixels right "hardware" scrolling */
 #define LINE_SCROLL_9_CYCLE_50	24	/*  9 pixels right "hardware" scrolling */
 #define LINE_SCROLL_5_CYCLE_50	28	/*  5 pixels right "hardware" scrolling */
 #define LINE_SCROLL_1_CYCLE_50	32	/*  1 pixels right "hardware" scrolling */
-#define LINE_LEFT_MID_CYCLE_1	20	/* mid res overscan, shifts display by 0 byte */
-#define LINE_LEFT_MID_CYCLE_2	28	/* mid res overscan, shifts display by 2 bytes */
-#define	LINE_EMPTY_CYCLE_70_STF	28	/* on STF switch to hi/lo will create an empty line */
-#define	LINE_EMPTY_CYCLE_70_STE	(28+4)	/* on STE switch to hi/lo will create an empty line */
+#define LINE_LEFT_MED_CYCLE_1	20	/* med res overscan, shifts display by 0 byte */
+#define LINE_LEFT_MED_CYCLE_2	28	/* med res overscan, shifts display by 2 bytes */
+#define	LINE_EMPTY_CYCLE_71_STF	28	/* on STF switch to hi/lo will create an empty line */
+#define	LINE_EMPTY_CYCLE_71_STE	(28+4)	/* on STE switch to hi/lo will create an empty line */
 
 /* Bytes for opened left and right border: */
 #define BORDERBYTES_NORMAL	160	/* size of a "normal" line */
@@ -103,8 +103,8 @@
 #define TIMERB_VIDEO_CYCLE_OFFSET	28			/* cycles after last displayed pixels : 376+28 in 50 Hz or 372+28 in 60 Hz */
 
 /* This is when ff8205/07/09 are reloaded with the content of ff8201/03 (on line 310 in 50 Hz) */
-#define RESTART_VIDEO_COUNTER_CYCLE_STF	( (MAX_SCANLINES_PER_FRAME-3) * CYCLES_PER_LINE_50HZ + 48 )
-#define RESTART_VIDEO_COUNTER_CYCLE_STE	( (MAX_SCANLINES_PER_FRAME-3) * CYCLES_PER_LINE_50HZ + 48 + 4 )	/* 4 cycles later than STF */
+#define RESTART_VIDEO_COUNTER_CYCLE_STF	( (SCANLINES_PER_FRAME_50HZ-3) * CYCLES_PER_LINE_50HZ + 48 )
+#define RESTART_VIDEO_COUNTER_CYCLE_STE	( (SCANLINES_PER_FRAME_50HZ-3) * CYCLES_PER_LINE_50HZ + 48 + 4 )	/* 4 cycles later than STF */
 
 /* anything above 4 uses automatic frameskip */
 #define AUTO_FRAMESKIP_LIMIT	5
@@ -142,28 +142,41 @@ extern int VblJitterArray[];
 extern int VblJitterArrayPending[];
 
 
-extern void Video_SetSystemTimings(void);
-extern void Video_Reset(void);
-extern void Video_Reset_Glue(void);
-extern void Video_MemorySnapShot_Capture(bool bSave);
-extern void Video_GetTTRes(int *width, int *height, int *bpp);
-extern void Video_StartInterrupts(void);
-extern void Video_InterruptHandler_VBL(void);
-extern void Video_InterruptHandler_HBL(void);
-extern void Video_InterruptHandler_EndLine(void);
-extern int Video_TimerB_GetPos(void);
-extern void Video_SetScreenRasters(void);
+/*--------------------------------------------------------------*/
+/* Functions prototypes						*/
+/*--------------------------------------------------------------*/
 
+extern void	Video_MemorySnapShot_Capture(bool bSave);
+
+extern void 	Video_Reset(void);
+extern void	Video_Reset_Glue(void);
+
+extern void	Video_ConvertPosition( int FrameCycles , int *pHBL , int *pLineCycles );
+extern void	Video_GetPosition( int *pFrameCycles , int *pHBL , int *pLineCycles );
+extern void	Video_GetPosition_OnWriteAccess( int *pFrameCycles , int *pHBL , int *pLineCycles );
+extern void	Video_GetPosition_OnReadAccess( int *pFrameCycles , int *pHBL , int *pLineCycles );
+
+extern void 	Video_Sync_WriteByte(void);
+
+extern int	Video_TimerB_GetPos( int LineNumber );
+
+extern void	Video_InterruptHandler_HBL(void);
+extern void	Video_InterruptHandler_EndLine(void);
+
+extern void	Video_SetScreenRasters(void);
+extern void	Video_GetTTRes(int *width, int *height, int *bpp);
+
+extern void	Video_StartInterrupts(void);
+extern void	Video_InterruptHandler_VBL ( void );
+
+extern void Video_ScreenBaseSTE_WriteByte(void);
 extern void Video_ScreenCounter_ReadByte(void);
+extern void Video_ScreenCounter_WriteByte(void);
 extern void Video_Sync_ReadByte(void);
 extern void Video_BaseLow_ReadByte(void);
 extern void Video_LineWidth_ReadByte(void);
 extern void Video_ShifterMode_ReadByte(void);
 extern void Video_HorScroll_Read(void);
-
-extern void Video_ScreenBaseSTE_WriteByte(void);
-extern void Video_ScreenCounter_WriteByte(void);
-extern void Video_Sync_WriteByte(void);
 extern void Video_LineWidth_WriteByte(void);
 extern void Video_Color0_WriteWord(void);
 extern void Video_Color1_WriteWord(void);

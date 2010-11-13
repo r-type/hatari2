@@ -1,0 +1,42 @@
+# use glob syntax.
+syntax: glob
+
+config.h
+CMakeCache.txt
+install_manifest.txt
+
+src/*.o
+src/*.a
+src/hatari
+src/tos.img
+
+src/*/*.o
+src/*/*.a
+
+src/uae-cpu/build68k
+src/uae-cpu/cpudefs.c
+src/uae-cpu/cpuemu.c
+src/uae-cpu/cpustbl.c
+src/uae-cpu/cputbl.h
+src/uae-cpu/gencpu
+
+tools/hmsa/hmsa
+tools/hmsa/*.o
+tools/hmsa/hmsa.1.gz
+
+python-ui/*.pyc
+python-ui/hatariui.1.gz
+
+website/screens
+
+doc/hatari.1.gz
+doc/doxygen/html
+
+# switch to regexp syntax.
+syntax: regexp
+
+(^|/)\.hg($|/)
+(^|/)\.hgtags($|/)
+CMakeFiles
+cmake_install.cmake
+Makefile

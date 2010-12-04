@@ -1,13 +1,13 @@
 /*
-  Hatari - spec320x16.c
+  Hatari - low320x16_spec.c
 
   This file is distributed under the GNU Public License, version 2 or at your
   option any later version. Read the file gpl.txt for details.
 
-  Screen Conversion, Spec512 to 320x16Bit
+  Screen Conversion, Low Res Spec512 to 320x16Bit
 */
 
-static void ConvertSpec512_320x16Bit(void)
+static void ConvertLowRes_320x16Bit_Spec(void)
 {
 	Uint32 *edi, *ebp;
 	Uint16 *esi;
@@ -43,8 +43,17 @@ static void ConvertSpec512_320x16Bit(void)
 			ebx = *edi;                 /* Do 16 pixels at one time */
 			ecx = *(edi+1);
 
-#if SDL_BYTEORDER == SDL_LIL_ENDIAN
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
 			/* Convert planes to byte indices - as works in wrong order store to workspace so can read back in order! */
+			LOW_BUILD_PIXELS_0 ;        /* Generate 'ecx' as pixels [12,13,14,15] */
+			pixelspace[3] = ecx;
+			LOW_BUILD_PIXELS_1 ;        /* Generate 'ecx' as pixels [4,5,6,7] */
+			pixelspace[1] = ecx;
+			LOW_BUILD_PIXELS_2 ;        /* Generate 'ecx' as pixels [8,9,10,11] */
+			pixelspace[2] = ecx;
+			LOW_BUILD_PIXELS_3 ;        /* Generate 'ecx' as pixels [0,1,2,3] */
+			pixelspace[0] = ecx;
+#else
 			LOW_BUILD_PIXELS_0 ;        /* Generate 'ecx' as pixels [4,5,6,7] */
 			pixelspace[1] = ecx;
 			LOW_BUILD_PIXELS_1 ;        /* Generate 'ecx' as pixels [12,13,14,15] */
@@ -53,18 +62,9 @@ static void ConvertSpec512_320x16Bit(void)
 			pixelspace[0] = ecx;
 			LOW_BUILD_PIXELS_3 ;        /* Generate 'ecx' as pixels [8,9,10,11] */
 			pixelspace[2] = ecx;
-#else
-			LOW_BUILD_PIXELS_0 ;
-			pixelspace[3] = ecx;
-			LOW_BUILD_PIXELS_1 ;
-			pixelspace[1] = ecx;
-			LOW_BUILD_PIXELS_2 ;
-			pixelspace[2] = ecx;
-			LOW_BUILD_PIXELS_3 ;
-			pixelspace[0] = ecx;
 #endif
 			/* And plot, the Spec512 is offset by 1 pixel and works on 'chunks' of 4 pixels */
-			/* So, we plot 1_4_4_3 to give 16 pixels, changing palette between */
+			/* So, we plot 1_4_4_4_3 to give 16 pixels, changing palette between */
 			/* (last one is used for first of next 16-pixels) */
 			ecx = pixelspace[0];
 			PLOT_SPEC512_LEFT_LOW_320_16BIT(0);

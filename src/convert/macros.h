@@ -95,6 +95,15 @@ static const Uint32 Remap_1_Plane[16] = {
 };
 
 
+
+/*----------------------------------------------------------------------*/
+/* Macros to convert from Atari's planar mode to chunky mode
+ * (1 byte per pixel). Convert by blocks of 4 pixels.
+ * 16 low res pixels -> 4 planes of 16 bits
+ * 16 med res pixels -> 2 planes of 16 bits
+ * 16 hi  res pixels -> 1 plane of 16 bits
+ */
+
 #define LOW_BUILD_PIXELS_0 \
 { \
  ebx &= 0x0f0f0f0f; \
@@ -175,6 +184,16 @@ static const Uint32 Remap_1_Plane[16] = {
 }
 
 
+
+/*----------------------------------------------------------------------*/
+/* Macros to plot Atari's pixels in the emulator's buffer
+ * (the buffer can be 32, 16 or 8 bits per pixel)
+ */
+
+/*
+ * 32 bit screen format
+ */
+
 /* Plot Low Resolution (320xH) 32-Bit pixels */
 #define PLOT_LOW_320_32BIT(offset)  \
 { \
@@ -240,7 +259,7 @@ static const Uint32 Remap_1_Plane[16] = {
 }
 
 /* Plot Spectrum512 Resolution (320xH) 32-Bit pixels */
-#define PLOT_SPEC512_MID_320_32BIT PLOT_MED_640_32BIT
+#define PLOT_SPEC512_MID_320_32BIT PLOT_LOW_320_32BIT
 
 /* Plot Spectrum512 Resolution(320xH) 32-Bit pixels */
 #define PLOT_SPEC512_END_LOW_320_32BIT(offset) \
@@ -275,10 +294,10 @@ static const Uint32 Remap_1_Plane[16] = {
 	esi[offset] = esi[offset+1] = STRGBPalette[ecx & 0x000000ff]; \
 }
 
-/* Plot Spectrum512 Resolution (640xH) 16-Bit pixels (Double on Y) */
+/* Plot Spectrum512 Resolution (640xH) 32-Bit pixels (Double on Y) */
 #define PLOT_SPEC512_MID_640_32BIT_DOUBLE_Y PLOT_LOW_640_32BIT_DOUBLE_Y
 
-/* Plot Spectrum512 Resolution (640xH) 16-Bit pixels (Double on Y) */
+/* Plot Spectrum512 Resolution (640xH) 32-Bit pixels (Double on Y) */
 #define PLOT_SPEC512_END_LOW_640_32BIT_DOUBLE_Y(offset)	\
 { \
 	ebx = STRGBPalette[ecx & 0x000000ff]; \
@@ -292,6 +311,41 @@ static const Uint32 Remap_1_Plane[16] = {
 	    = esi[offset+4] = esi[offset+5] = ebx; \
 }
 
+
+/* Plot Spectrum512 Medium Resolution (640xH) 32-Bit pixels */
+#define PLOT_SPEC512_LEFT_MED_640_32BIT	PLOT_SPEC512_LEFT_LOW_320_32BIT
+
+#define PLOT_SPEC512_MID_MED_640_32BIT PLOT_SPEC512_MID_320_32BIT
+
+#define PLOT_SPEC512_END_MED_640_32BIT PLOT_SPEC512_END_LOW_320_32BIT
+
+
+/* Plot Spectrum512 Medium Resolution (640xH) 32-Bit pixels (Double on Y) */
+#define PLOT_SPEC512_LEFT_MED_640_32BIT_DOUBLE_Y(offset) \
+{ \
+	esi[offset+Screen4BytesPerLine] = esi[offset] = STRGBPalette[ecx & 0x000000ff]; \
+}
+
+#define PLOT_SPEC512_MID_MED_640_32BIT_DOUBLE_Y(offset) \
+{ \
+	esi[offset+0+Screen4BytesPerLine] = esi[offset+0] = STRGBPalette[ecx & 0x000000ff]; \
+	esi[offset+1+Screen4BytesPerLine] = esi[offset+1] = STRGBPalette[(ecx >> 8) & 0x000000ff]; \
+	esi[offset+2+Screen4BytesPerLine] = esi[offset+2] = STRGBPalette[(ecx >> 16) & 0x000000ff]; \
+	esi[offset+3+Screen4BytesPerLine] = esi[offset+3] = STRGBPalette[(ecx >> 24) & 0x000000ff]; \
+}
+
+#define PLOT_SPEC512_END_MED_640_32BIT_DOUBLE_Y(offset) \
+{ \
+	esi[offset+0+Screen4BytesPerLine] = esi[offset+0] = STRGBPalette[ecx & 0x000000ff]; \
+	esi[offset+1+Screen4BytesPerLine] = esi[offset+1] = STRGBPalette[(ecx >> 8) & 0x000000ff]; \
+	esi[offset+2+Screen4BytesPerLine] = esi[offset+2] = STRGBPalette[(ecx >> 16) & 0x000000ff]; \
+}
+
+
+
+/*
+ * 16 bit screen format
+ */
 
 /* Plot Low Resolution (320xH) 16-Bit pixels */
 #define PLOT_LOW_320_16BIT(offset)  \
@@ -403,7 +457,7 @@ static const Uint32 Remap_1_Plane[16] = {
 }
 
 /* Plot Spectrum512 Resolution(320xH) 16-Bit pixels */
-#define PLOT_SPEC512_MID_320_16BIT PLOT_MED_640_16BIT
+#define PLOT_SPEC512_MID_320_16BIT PLOT_LOW_640_16BIT
 
 /* Plot Spectrum512 Resolution(320xH) 16-Bit pixels */
 #define PLOT_SPEC512_END_LOW_320_16BIT(offset) \
@@ -451,6 +505,24 @@ static const Uint32 Remap_1_Plane[16] = {
   ebx = STRGBPalette[(ecx >> 16) & 0x000000ff]; \
   esi[offset+2] = esi[offset+2+Screen4BytesPerLine] = ebx; \
 }
+
+
+/* Plot Spectrum512 Medium Resolution (640xH) 16-Bit pixels */
+#define PLOT_SPEC512_LEFT_MED_640_16BIT	PLOT_SPEC512_LEFT_LOW_320_16BIT
+
+#define PLOT_SPEC512_MID_MED_640_16BIT PLOT_SPEC512_MID_320_16BIT
+
+#define PLOT_SPEC512_END_MED_640_16BIT PLOT_SPEC512_END_LOW_320_16BIT
+
+
+/* Plot Spectrum512 Medium Resolution (640xH) 16-Bit pixels (Double on Y) */
+#define PLOT_SPEC512_LEFT_MED_640_16BIT_DOUBLE_Y PLOT_SPEC512_LEFT_MED_640_32BIT_DOUBLE_Y
+
+#define PLOT_SPEC512_MID_MED_640_16BIT_DOUBLE_Y PLOT_SPEC512_MID_MED_640_32BIT_DOUBLE_Y
+
+#define PLOT_SPEC512_END_MED_640_16BIT_DOUBLE_Y PLOT_SPEC512_END_MED_640_32BIT_DOUBLE_Y
+
+
 
 /* Get Spec512 pixels which are offset by 1 pixel */
 #if defined(__i386__)    // Unaligned direct access is only supported on i86 platforms

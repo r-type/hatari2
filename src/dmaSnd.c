@@ -8,12 +8,15 @@
   but since the DMA sound has to be mixed together with the PSG sound and
   the output frequency of the host computer differs from the DMA sound
   frequency, the copy function is a little bit complicated.
-  For reducing copy latency, we set a cycle-interrupt event with
-  CycInt_AddRelativeInterrupt to occur just after a sound frame should be
-  finished. There we update the sound.
   The update function also triggers the ST interrupts (Timer A and MFP-i7)
   which are often used in ST programs for setting a new sound frame after
   the old one has finished.
+
+  To support programs that write into the frame buffer while it's played,
+  we should update dma sound on each video HBL.
+  This is also how it works on a real STE : bytes are read by the DMA
+  at the end of each HBL and stored in a small FIFO (8 bytes) that is sent
+  to the DAC depending on the chosen DMA output freq.
 
   Falcon sound emulation is all taken into account in crossbar.c
 
@@ -108,8 +111,8 @@ const char DmaSnd_fileid[] = "Hatari dmaSnd.c : " __DATE__ " " __TIME__;
 
 
 /* Global variables that can be changed/read from other parts of Hatari */
-void DmaSnd_Init_Bass_and_Treble_Tables(void);
 
+static void DmaSnd_Apply_LMC(int nMixBufIdx, int nSamplesToGenerate);
 static void DmaSnd_Set_Tone_Level(int set_bass, int set_treb);
 static float DmaSnd_IIRfilterL(float xn);
 static float DmaSnd_IIRfilterR(float xn);
@@ -189,10 +192,7 @@ static const Sint16 LMC1992_Bass_Treble_Table[16] =
 
 static const int DmaSndSampleRates[4] =
 {
-	CPU_FREQ / 1280,	/* 6258  Hz */
-	CPU_FREQ / 640,		/* 12517 Hz */
-	CPU_FREQ / 320,		/* 25033 Hz */
-	CPU_FREQ / 160		/* 50066 Hz */
+	6258, 12517, 25033, 50066
 };
 
 
@@ -277,12 +277,13 @@ static void DmaSnd_StartNewFrame(void)
 		return;
 	}
 
-	/* To get smooth sound, set an "interrupt" for the end of the frame that
-	 * updates the sound mix buffer. */
-	nCyclesForFrame = dma.frameLen * (CPU_FREQ / DmaSnd_DetectSampleRate());
-	if (!(dma.soundMode & DMASNDMODE_MONO))  /* Is it stereo? */
-		nCyclesForFrame = nCyclesForFrame / 2;
-	CycInt_AddRelativeInterrupt(nCyclesForFrame, INT_CPU_CYCLE, INTERRUPT_DMASOUND);
+// [NP] No more need for a timer since dma sound is updated on each HBL
+//	/* To get smooth sound, set an "interrupt" for the end of the frame that
+//	 * updates the sound mix buffer. */
+//	nCyclesForFrame = dma.frameLen * (CPU_FREQ / DmaSnd_DetectSampleRate());
+//	if (!(dma.soundMode & DMASNDMODE_MONO))  /* Is it stereo? */
+//		nCyclesForFrame = nCyclesForFrame / 2;
+//	CycInt_AddRelativeInterrupt(nCyclesForFrame, INT_CPU_CYCLE, INTERRUPT_DMASOUND);
 }
 
 
@@ -308,6 +309,10 @@ static inline int DmaSnd_EndOfFrameReached(void)
 	else
 	{
 		nDmaSoundControl &= ~DMASNDCTRL_PLAY;
+
+		/* DMA sound is stopped, remove interrupt */
+		CycInt_RemovePendingInterrupt(INTERRUPT_DMASOUND);
+
 		return true;
 	}
 
@@ -346,23 +351,9 @@ void DmaSnd_GenerateSamples(int nMixBufIdx, int nSamplesToGenerate)
 					break;
 			}
 		}
-		
-		/* Apply LMC1992 sound modifications (Bass and Treble) 
-		   The Bass and Treble get samples at nAudioFrequency rate.
-	       The tone control's sampling frequency must be at least 22050 Hz to sound good. 
-		*/
-		for (i = 0; i < nSamplesToGenerate; i++) {
-			nBufIdx = (nMixBufIdx + i) % MIXBUFFER_SIZE;
-			MixBuffer[nBufIdx][0] = 0.5 + DmaSnd_IIRfilterL(MixBuffer[nBufIdx][0]);
-			MixBuffer[nBufIdx][1] = 0.5 + DmaSnd_IIRfilterR(MixBuffer[nBufIdx][1]);
-		}
 
-		/* Apply LMC1992 sound modifications (Left, Right and Master Volume) */
-		for (i = 0; i < nSamplesToGenerate; i++) {
-			nBufIdx = (nMixBufIdx + i) % MIXBUFFER_SIZE;
-			MixBuffer[nBufIdx][0] = (((MixBuffer[nBufIdx][0] * microwire.leftVolume) >> 16) * microwire.masterVolume) >> 16;
-			MixBuffer[nBufIdx][1] = (((MixBuffer[nBufIdx][1] * microwire.rightVolume) >> 16) * microwire.masterVolume) >> 16;
-		}
+		/* Apply LMC1992 sound modifications (Bass and Treble) */
+		DmaSnd_Apply_LMC ( nMixBufIdx , nSamplesToGenerate );
 		
 		return;
 	}
@@ -483,10 +474,22 @@ void DmaSnd_GenerateSamples(int nMixBufIdx, int nSamplesToGenerate)
 		}
 	}
 
-	/* Apply LMC1992 sound modifications (Bass and Treble) 
-	   The Bass and Treble get samples at nAudioFrequency rate.
-	   The tone control's sampling frequency must be at least 22050 Hz to sound good. 
-	*/
+	/* Apply LMC1992 sound modifications (Bass and Treble) */
+	DmaSnd_Apply_LMC ( nMixBufIdx , nSamplesToGenerate );
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Apply LMC1992 sound modifications (Bass and Treble)
+ * The Bass and Treble get samples at nAudioFrequency rate.
+ * The tone control's sampling frequency must be at least 22050 Hz to sound good.
+ */
+static void DmaSnd_Apply_LMC(int nMixBufIdx, int nSamplesToGenerate)
+{
+	int nBufIdx;
+	int i;
+
 	for (i = 0; i < nSamplesToGenerate; i++) {
 		nBufIdx = (nMixBufIdx + i) % MIXBUFFER_SIZE;
 		MixBuffer[nBufIdx][0] = 0.5 + DmaSnd_IIRfilterL(MixBuffer[nBufIdx][0]);
@@ -514,6 +517,23 @@ void DmaSnd_InterruptHandler(void)
 
 	/* Update sound */
 	Sound_Update(false);
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * DMA sound is using an 8 bytes FIFO that is checked and filled on each HBL
+ * (at 50066 Hz 8 bit stereo, the DMA requires approx 6.5 new bytes per HBL)
+ * Calling Sound_Update on each HBL allows to emulate some programs that modify
+ * the data between FrameStart and FrameEnd while DMA sound is ON
+ * (eg the demo 'Mental Hangover' or the game 'Power Up Plus')
+ * This function should be called from the HBL's handler (in video.c)
+ */
+void DmaSnd_HBL_Update(void)
+{
+	/* If DMA sound is ON, update sound */
+	if (nDmaSoundControl & DMASNDCTRL_PLAY)
+		Sound_Update(false);
 }
 
 
@@ -548,6 +568,36 @@ void DmaSnd_SoundControl_ReadWord(void)
 	IoMem_WriteWord(0xff8900, nDmaSoundControl);
 
 	LOG_TRACE(TRACE_DMASND, "DMA snd control read: 0x%04x\n", nDmaSoundControl);
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Write word to sound control register (0xff8900).
+ */
+void DmaSnd_SoundControl_WriteWord(void)
+{
+	Uint16 nNewSndCtrl;
+
+	LOG_TRACE(TRACE_DMASND, "DMA snd control write: 0x%04x\n", IoMem_ReadWord(0xff8900));
+
+	nNewSndCtrl = IoMem_ReadWord(0xff8900) & 3;
+
+	if (!(nDmaSoundControl & DMASNDCTRL_PLAY) && (nNewSndCtrl & DMASNDCTRL_PLAY))
+	{
+		//fprintf(stderr, "Turning on DMA sound emulation.\n");
+		DmaSnd_StartNewFrame();
+	}
+	else if ((nDmaSoundControl & DMASNDCTRL_PLAY) && !(nNewSndCtrl & DMASNDCTRL_PLAY))
+	{
+		//fprintf(stderr, "Turning off DMA sound emulation.\n");
+		/* Create samples up until this point with current values */
+		Sound_Update(false);
+		/* DMA sound is stopped, remove interrupt */
+		CycInt_RemovePendingInterrupt(INTERRUPT_DMASOUND);
+	}
+
+	nDmaSoundControl = nNewSndCtrl;
 }
 
 
@@ -649,7 +699,8 @@ void DmaSnd_SoundModeCtrl_ReadByte(void)
  */
 void DmaSnd_SoundModeCtrl_WriteByte(void)
 {
-	LOG_TRACE(TRACE_DMASND, "DMA snd mode write: 0x%02x\n", IoMem_ReadWord(0xff8921));
+	LOG_TRACE(TRACE_DMASND, "DMA snd mode write: 0x%02x mode=%s freq=%d\n", IoMem_ReadByte(0xff8921),
+		IoMem_ReadByte(0xff8921) & DMASNDMODE_MONO ? "mono" : "stereo" , DmaSndSampleRates[ IoMem_ReadByte(0xff8921) & 3 ]);
 
 	/* STE or TT - hopefully STFM emulation never gets here :)
 	 * We maskout to only hit bits that exist on a real STE
@@ -801,35 +852,6 @@ void DmaSnd_MicrowireMask_WriteWord(void)
 	}
 
 	LOG_TRACE(TRACE_DMASND, "Microwire mask write: 0x%x\n", IoMem_ReadWord(0xff8924));
-}
-
-
-/*-----------------------------------------------------------------------*/
-/**
- * Write word to sound control register (0xff8900).
- */
-void DmaSnd_SoundControl_WriteWord(void)
-{
-	Uint16 nNewSndCtrl;
-
-	LOG_TRACE(TRACE_DMASND, "DMA snd control write: 0x%04x\n", IoMem_ReadWord(0xff8900));
-
-	nNewSndCtrl = IoMem_ReadWord(0xff8900) & 3;
-
-	if (!(nDmaSoundControl & DMASNDCTRL_PLAY) && (nNewSndCtrl & DMASNDCTRL_PLAY))
-	{
-		//fprintf(stderr, "Turning on DMA sound emulation.\n");
-		DmaSnd_StartNewFrame();
-	}
-	else if ((nDmaSoundControl & DMASNDCTRL_PLAY) && !(nNewSndCtrl & DMASNDCTRL_PLAY))
-	{
-		//fprintf(stderr, "Turning off DMA sound emulation.\n");
-		/* Create samples up until this point with current values */
-		Sound_Update(false);
-
-	}
-
-	nDmaSoundControl = nNewSndCtrl;
 }
 
 

@@ -288,6 +288,9 @@
 /*			STE's horizontal scrolling for any line's length (160, 224, 230, ...).	*/
 /*			Fix the last 16 pixels for 224 bytes overscan (More Or Less Zero and	*/
 /*			Cernit Trandafir by DHS, Save The Earth by Defence Force).		*/
+/* 2011/04/03	[NP]	Call DmaSnd_HBL_Update() on each HBL to handle programs that modify	*/
+/*			the samples data while those data are played by the DMA sound.		*/
+/*			(fixes the game Power Up Plus and the demo Mental Hangover).		*/ 
 
 
 
@@ -310,6 +313,7 @@ const char Video_fileid[] = "Hatari video.c : " __DATE__ " " __TIME__;
 #include "screenSnapShot.h"
 #include "shortcut.h"
 #include "sound.h"
+#include "dmaSnd.h"
 #include "spec512.h"
 #include "stMemory.h"
 #include "vdi.h"
@@ -1436,6 +1440,8 @@ void Video_InterruptHandler_HBL ( void )
 
 
 	Video_EndHBL();					/* Check some borders removal and copy line to display buffer */
+
+	DmaSnd_HBL_Update();				/* Update DMA sound if needed */
 
 	nHBL++;						/* Increase HBL count */
 

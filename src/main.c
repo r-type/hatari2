@@ -48,6 +48,7 @@ const char Main_fileid[] = "Hatari main.c : " __DATE__ " " __TIME__;
 #include "video.h"
 #include "avi_record.h"
 #include "debugui.h"
+#include "clocks_timings.h"
 
 #include "hatari-glue.h"
 
@@ -284,7 +285,8 @@ void Main_WaitOnVbl(void)
 		exit(0);
 	}
 
-	FrameDuration_micro = (Sint64) ( 1000000.0 / nScreenRefreshRate + 0.5 );	/* round to closest integer */
+//	FrameDuration_micro = (Sint64) ( 1000000.0 / nScreenRefreshRate + 0.5 );	/* round to closest integer */
+	FrameDuration_micro = ClocksTimings_GetVBLDuration_micro ( ConfigureParams.System.nMachineType , nScreenRefreshRate );
 	CurrentTicks = Time_GetTicks();
 
 	if ( DestTicks == 0 )					/* first call, init DestTicks */
@@ -577,6 +579,7 @@ static void Main_Init(void)
 		fprintf(stderr, "Could not initialize the SDL library:\n %s\n", SDL_GetError() );
 		exit(-1);
 	}
+	ClocksTimings_InitMachine ( ConfigureParams.System.nMachineType );
 	Resolution_Init();
 	SDLGui_Init();
 	Printer_Init();

@@ -41,7 +41,6 @@ const char Change_fileid[] = "Hatari change.c : " __DATE__ " " __TIME__;
 #if ENABLE_DSP_EMU
 # include "falcon/dsp.h"
 #endif
-#include "clocks_timings.h"
 
 #define DEBUG 0
 #if DEBUG

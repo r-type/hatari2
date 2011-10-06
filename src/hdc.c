@@ -14,6 +14,7 @@ const char HDC_fileid[] = "Hatari hdc.c : " __DATE__ " " __TIME__;
 #include "file.h"
 #include "fdc.h"
 #include "hdc.h"
+#include "ioMem.h"
 #include "log.h"
 #include "memorySnapShot.h"
 #include "mfp.h"
@@ -60,8 +61,6 @@ static Uint8 nLastError;
 /*
   FDC registers used:
   - FDCSectorCountRegister
-  - DiskControllerStatus_ff8604rd
-  - DMAModeControl_ff8606wr
 */
 
 
@@ -169,7 +168,7 @@ static void HDC_Cmd_Inquiry(void)
 	Uint32 nDmaAddr;
 	int count;
 
-	nDmaAddr = FDC_ReadDMAAddress();
+	nDmaAddr = FDC_GetDMAAddress();
 	count = HDC_GetCount();
 
 #ifdef HDC_VERBOSE
@@ -227,7 +226,7 @@ static void HDC_Cmd_RequestSense(void)
 		nRetLen = 22;
 	}
 
-	nDmaAddr = FDC_ReadDMAAddress();
+	nDmaAddr = FDC_GetDMAAddress();
 
 	memset(retbuf, 0, nRetLen);
 
@@ -301,7 +300,7 @@ static void HDC_Cmd_ModeSense(void)
 	fprintf(stderr,"HDC: Mode Sense.\n");
 #endif
 
-	nDmaAddr = FDC_ReadDMAAddress();
+	nDmaAddr = FDC_GetDMAAddress();
 
 	if (!STMemory_ValidArea(nDmaAddr, 16))
 	{
@@ -379,7 +378,7 @@ static void HDC_Cmd_FormatDrive(void)
  */
 static void HDC_Cmd_ReadCapacity(void)
 {
-	Uint32 nDmaAddr = FDC_ReadDMAAddress();
+	Uint32 nDmaAddr = FDC_GetDMAAddress();
 
 #ifdef HDC_VERBOSE
 	fprintf(stderr,"Reading 8 bytes capacity data to addr: 0x%x\n", nDmaAddr);
@@ -437,7 +436,7 @@ static void HDC_Cmd_WriteSector(void)
 	else
 	{
 		/* write - if allowed */
-		Uint32 nDmaAddr = FDC_ReadDMAAddress();
+		Uint32 nDmaAddr = FDC_GetDMAAddress();
 #ifndef DISALLOW_HDC_WRITE
 		if (STMemory_ValidArea(nDmaAddr, 512*HDC_GetCount()))
 		{
@@ -495,7 +494,7 @@ static void HDC_Cmd_ReadSector(void)
 	}
 	else
 	{
-		Uint32 nDmaAddr = FDC_ReadDMAAddress();
+		Uint32 nDmaAddr = FDC_GetDMAAddress();
 		if (STMemory_ValidArea(nDmaAddr, 512*HDC_GetCount()))
 		{
 			n = fread(&STRam[nDmaAddr], 512,
@@ -824,7 +823,7 @@ void HDC_WriteCommandPacket(void)
 		return;
 
 	/* command byte sent */
-	unsigned char b = DiskControllerWord_ff8604wr & 0xFF;
+	unsigned char b = IoMem_ReadByte(0xff8605);
 
 	/* Extract target and extended mode early, read acsi opcode */
 	if (HDCCommand.readCount == 0)

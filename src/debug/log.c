@@ -67,6 +67,8 @@ TraceOptions[] = {
 
 	{ TRACE_FDC		 , "fdc" } ,
 
+	{ TRACE_ACIA		 , "acia" } ,
+
 	{ TRACE_IKBD_CMDS	 , "ikbd_cmds" } ,
 	{ TRACE_IKBD_ACIA	 , "ikbd_acia" } ,
 	{ TRACE_IKBD_EXEC	 , "ikbd_exec" } ,

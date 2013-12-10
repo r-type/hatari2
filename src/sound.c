@@ -1,8 +1,8 @@
 /*
   Hatari - sound.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   This is where we emulate the YM2149. To obtain cycle-accurate timing we store
   the current cycle time and this is incremented during each instruction.
@@ -18,8 +18,9 @@
   in the sound and it simply doesn't work. If the emulator cannot keep the
   speed, users will have to turn off the sound - that's it.
 
-  The new version of the sound core uses some code/ideas from the following GPL projects :
+  The new version of the sound core uses/used some code/ideas from the following GPL projects :
     - tone and noise steps computations are from StSound 1.2 by Arnaud Carré (Leonard/Oxygene)
+      (not used since Hatari 1.1.0)
     - 5 bits volume table and 16*16*16 combinations of all volume are from Sc68 by Benjamin Gerard
     - 4 bits to 5 bits volume interpolation from 16*16*16 to 32*32*32 from YM blep synthesis by Antti Lankila
 
@@ -36,7 +37,7 @@
 /* 2008/07/27	[NP]	Better separation between accesses to the YM hardware registers	*/
 /*			and the sound rendering routines. Use Sound_WriteReg() to pass	*/
 /*			all writes to the sound rendering functions. This allows to	*/
-/*			have sound.c independant of psg.c (to ease replacement of	*/
+/*			have sound.c independent of psg.c (to ease replacement of	*/
 /*			sound.c	by another rendering method).				*/
 /* 2008/08/02	[NP]	Initial convert of Ym2149Ex.cpp from C++ to C.			*/
 /*			Remove unused part of the code (StSound specific).		*/
@@ -467,7 +468,7 @@ static void	YM2149_BuildLinearVolumeTable(ymu16 volumetable[32][32][32])
  * developed across the 1K resistor is the output voltage which
  * I call Vout.
  *
- * The output of the YM2149 is modeled well as pullup resistors.
+ * The output of the YM2149 is modelled well as pullup resistors.
  * Thus, the three sound pins are seen as three parallel
  * computer-controlled, adjustable pull-up resistors.
  * To emulate the output of the YM2149, one must determine the
@@ -581,6 +582,7 @@ static void	YM2149_BuildModelVolumeTable(ymu16 volumetable[32][32][32])
  * Possible values are :
  *	Level=65535 and DoCenter=TRUE -> [-32768,32767]
  *	Level=32767 and DoCenter=false -> [0,32767]
+ *	Level=16383 and DoCenter=false -> [0,16383] (to avoid overflow with DMA sound on STe)
  */
 
 static void	YM2149_Normalise_5bit_Table(ymu16 *in_5bit , yms16 *out_5bit, unsigned int Level, bool DoCenter)
@@ -589,7 +591,7 @@ static void	YM2149_Normalise_5bit_Table(ymu16 *in_5bit , yms16 *out_5bit, unsign
 	{
 		int h;
 		int Max = in_5bit[0x7fff];
-		int Center = Level>>1;
+		int Center = (Level+1)>>1;
 		//fprintf ( stderr , "level %d max %d center %d\n" , Level, Max, Center );
 
 		/* Change the amplitude of the signal to 'level' : [0,max] -> [0,level] */
@@ -665,7 +667,12 @@ static void	Ym2149_BuildVolumeTable(void)
 		YM2149_BuildLinearVolumeTable(ymout5_u16);	/* combine the 32 possible volumes */
 
 	/* Normalise/center the values (convert from u16 to s16) */
-	YM2149_Normalise_5bit_Table ( ymout5_u16[0][0] , ymout5 , YM_OUTPUT_LEVEL , YM_OUTPUT_CENTERED );
+	/* On STE/TT, we use YM_OUTPUT_LEVEL>>1 to avoid overflow with DMA sound */
+	if ( (ConfigureParams.System.nMachineType == MACHINE_STE) || (ConfigureParams.System.nMachineType == MACHINE_MEGA_STE)
+		|| (ConfigureParams.System.nMachineType == MACHINE_TT) )
+		YM2149_Normalise_5bit_Table ( ymout5_u16[0][0] , ymout5 , (YM_OUTPUT_LEVEL>>1) , YM_OUTPUT_CENTERED );
+	else
+		YM2149_Normalise_5bit_Table ( ymout5_u16[0][0] , ymout5 , YM_OUTPUT_LEVEL , YM_OUTPUT_CENTERED );
 }
 
 
@@ -721,15 +728,22 @@ static void	Ym2149_Reset(void)
 /*-----------------------------------------------------------------------*/
 /**
  * Returns a pseudo random value, used to generate white noise.
+ * As measured by David Savinkoff, the YM2149 uses a 17 stage LSFR with
+ * 2 taps (17,14)
  */
 
 static ymu32	YM2149_RndCompute(void)
 {
-	ymu32	bit;
-
-	bit = (RndRack&1) ^ ((RndRack>>2)&1);
-	RndRack = (RndRack>>1) | (bit<<16);
-	return (bit ? 0 : 0xffff);
+	/*  17 stage, 2 taps (17, 14) LFSR */
+	if (RndRack & 1)
+	{
+		RndRack = RndRack>>1 ^ 0x12000;		/* bits 17 and 14 are ones */
+		return 0xffff;
+	}
+	else
+	{	RndRack >>= 1;
+		return 0;
+	}
 }
 
 
@@ -907,7 +921,7 @@ static ymsample	YM2149_NextSample(void)
 	/* Noise value : 0 or 0xffff */
 	if ( noisePos&0xffff0000 )
 	{
-		currentNoise ^= YM2149_RndCompute();
+		currentNoise = YM2149_RndCompute();
 		noisePos &= 0xffff;
 	}
 	bn = currentNoise;				/* 0 or 0xffff */
@@ -977,7 +991,7 @@ static ymsample	YM2149_NextSample(void)
 	/* Noise value : 0 or 0xffff */
 	if ( noisePos&0xff000000 )			/* integer part > 0 */
 	{
-		currentNoise ^= YM2149_RndCompute();
+		currentNoise = YM2149_RndCompute();
 		noisePos &= 0xffffff;			/* keep fractional part of noisePos */
 	}
 	bn = currentNoise;				/* 0 or 0xffff */

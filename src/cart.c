@@ -1,8 +1,8 @@
 /*
   Hatari - cart.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Cartridge program
 
@@ -28,6 +28,7 @@ const char Cart_fileid[] = "Hatari cart.c : " __DATE__ " " __TIME__;
 #include "log.h"
 #include "m68000.h"
 #include "stMemory.h"
+#include "tos.h"
 #include "vdi.h"
 #include "hatari-glue.h"
 #include "newcpu.h"
@@ -112,10 +113,12 @@ void Cart_ResetImage(void)
 			Log_Printf(LOG_WARN, "Cartridge can't be used together with GEMDOS hard disk emulation!\n");
 	}
 
-	/* Use internal cartridge when user wants extended VDI resolution or GEMDOS HD. */
-	if (bUseVDIRes || ConfigureParams.HardDisk.bUseHardDiskDirectories)
+	/* Use internal cartridge when user wants extended VDI resolution or
+	 * GEMDOS HD. But don't use it on TOS 0.00, it does not work there. */
+	if ((bUseVDIRes || ConfigureParams.HardDisk.bUseHardDiskDirectories)
+	    && TosVersion >= 0x100)
 	{
-		/* Copy built-in cartrige data into the cartridge memory of the ST */
+		/* Copy built-in cartridge data into the cartridge memory of the ST */
 		memcpy(&RomMem[0xfa0000], Cart_data, sizeof(Cart_data));
 		PatchIllegal = true;
 	}
@@ -140,5 +143,21 @@ void Cart_ResetImage(void)
 		cpufunctbl[GEMDOS_OPCODE] = cpufunctbl[ 0x4afc ];	/* 0x0008 */
 		cpufunctbl[SYSINIT_OPCODE] = cpufunctbl[ 0x4afc ];	/* 0x000a */
 		cpufunctbl[VDI_OPCODE] = cpufunctbl[ 0x4afc ];		/* 0x000c */
+	}
+
+	/* although these don't need cartridge code, it's better
+	 * to configure all illegal opcodes in same place...
+	 */
+	if (ConfigureParams.Log.bNatFeats)
+	{
+		/* illegal opcodes for emulators Native Features */
+		cpufunctbl[NATFEAT_ID_OPCODE] = OpCode_NatFeat_ID;	/* 0x7300 */
+		cpufunctbl[NATFEAT_CALL_OPCODE] = OpCode_NatFeat_Call;	/* 0x7301 */
+	}
+	else
+	{
+		/* No Native Features : set same handler as 0x4afc (illegal) */
+		cpufunctbl[NATFEAT_ID_OPCODE] = cpufunctbl[ 0x4afc ];	/* 0x7300 */
+		cpufunctbl[NATFEAT_CALL_OPCODE] = cpufunctbl[ 0x4afc ];	/* 0x7300 */
 	}
 }

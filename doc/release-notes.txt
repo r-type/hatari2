@@ -3,6 +3,265 @@
                                    --------
                                 Release Notes
 
+ Development version:
+ --------------------
+
+Emulation:
+- ST video changes :
+  - Handle 0 byte line by switching freq in STE mode
+  - Use high res when ff8260 is set to 3
+- CPU changes :
+  - Fix a case when MFP's interrupt happens during the IACK sequence for HBL/VBL
+- Fix READ CAPACITY command result for ACSI hard disk images
+- FDC changes :
+  - Add configurable RPM speed for each floppy drive and the possibility
+    to turn each drive ON/OFF.
+  - Correct timings, behaviour and status register for all commands
+    when a drive is OFF or empty.
+  - Rewrite the index pulse part and all the delays expressed as disk's revolution
+  - Add support for the "Force Int on Index Pulse" command
+- Videl change :
+  - correct masking of the true color palette registers
+- ACSI hard disk changes:
+  - Fixed/improved READ CAPACITY and INQUIRY commands
+  - Unsupported commands are now handled correctly
+  - Now using fseeko() instead of fseek() for supporting large images
+
+Emulator:
+- SDL GUI:
+  - Update clock speed in the status bar when changing bus speed
+    in Falcon mode
+  - In the floppy dialog, use a checkbox to enable/disable drives A and B
+- Fix: Xbios(255) modified the given argument string
+- New options --drive-a and --drive-b to enable/disable drives A and B
+- Debugger:
+  - Fix: DSP disassembler didn't in all cases show illegal opcodes correctly.
+  - Fix: "symbols" command crash when it was used during bootup.
+  - "next" and "dspnext" commands support optional "instruction type"
+    argument, which can be used (for example) to continue emulation
+    until subroutine returns.
+  - "history" command takes optional parameter specifying how many
+    instructions of history will be tracked.
+  - CPU & DSP profile commands have now subcommand for profiling loops.
+  - "CpuInstr" and "DspInstr" variables for count of instructions
+    executed since emulation was last continued from debugger.
+  - In addition to "!" condition, also "<" and ">" conditions can store
+    the checked value (when both sides of conditions are identical).
+    With above change, this can be e.g. used to detect and profile
+    what are worst frames in games and why.
+  - New "rename" command to rename files.  Useful for scripted
+    worst frame and spinloop profiling.
+  - Address space in 'dm' command can be given like in DSP disassembly,
+    "dm x:$100", in addition to earlier "dm x $100" syntax.
+
+Tools:
+- New hatari_spinloop.py script for post-processing loop profile data.
+  It can tell how many times loops were executed, how many times they
+  spinned at minimum and maximum, at which VBL those happened, and what
+  was the standard deviation of that.
+-Improved mingw cross-compilation support
+
+Fixed demos :
+  Shforstv.exe by Paulo Simoes (video, did not work in STE mode)
+  Sommarhack 2011 Invitro by DHS (CPU/MFP, top border not removed)
+  The World Is My Oyster - Convention Report Part by Aura (video, res=3)
+
+Fixed games :
+  Reeking Rubber (by Nature), Falcon game
+
+
+ Version 1.7.0 (2013-06-24):
+ ---------------------------
+
+Emulation:
+- TT video emulation :
+  - Extend the ST palette registers from 9bit to 12bit for ST modes
+  - Duochrome mode instead of monochrome for ST High
+  - Implementation of SampleHold in TT Hypermono video mode
+- Sound changes :
+  - Better model of the YM2149 noise generation (no noticeable audible impact)
+  - Slightly better volume table (measured by Paulo Simoes on a real ST)
+- CPU changes :
+  - Added experimental MMU emulation for the 68030 mode
+  - Handle the IACK cycles during an exception for HBL/VBL
+- ACIA/IKBD changes :
+  - Full implementation of the MC6850 ACIA, giving much more robust
+    IKBD emulation
+  - Better timings for all IKBD commands (measured on a real STF)
+  - Clock is handled internally in IKBD, host date/time is used
+    only to initialize RTC at boot.  I.e. pausing emulation doesn't
+    cause time skips when unpausing
+  - Fix slow mouse when absolute mode is used with scale values
+- MFP changes :
+  - Fixed priority errors when simultaneous interrupts happened
+  - MFP's IRQ should be delayed by 4 cycles before reaching the CPU
+  - MFP's IRQ signal was not correctly updated in some cases
+  - Handle the IACK cycles between CPU and MFP during an exception
+- FDC changes :
+  - Better delays for all the GAPs inside a track
+  - Emulate the disk's rotation and its angular position to get
+    accurate delays when accessing a sector header
+  - Internal timer for FDC was wrong and sometimes slower than expected
+  - Correct delay for type I commands with "verify" bit=1
+- GEMDOS HD emulation changes :
+  - Support Fforce() for GEMDOS HD emulated files and close at Pterm*()
+    all internal handles to emulated files program had left open
+  - Fix: cut file and dir names to 8+3 chars like all TOS versions do
+  - Fix: GEMDOS HD emulation overwrote last 28 bytes of basepage space
+    for the started process command line (with the program header)
+  - Fix: Fwrite() content wasn't flushed to disk on each write, so later
+    Fopen() + Fread()s calls on such files (if they were not closed
+    in the meanwhile) could get data that was out of date.
+  - Fix: Dfree() return value
+
+Emulator:
+- Fix: problems with run-time CPU type changing
+- Fix: MIDI IRQs were not enabled if MIDI was enabled at run-time.
+  MIDI toggling will now imply reset
+- Much improved console redirection functionality and a separate --conout
+  option for it (--bios-intercept doesn't anymore imply console redirection)
+- Fixed a bug with the axes' mapping in the joystick's detection
+- Display handling:
+  - Fix: max resolution limit wasn't handled properly for ST mode.
+  - Don't change TOS-calculated font size for VDI mode.
+  - Setup NVRAM video mode based on VDI mode, when in VDI mode.
+    This makes VDI mode work with EmuTOS also under Falcon emulation
+    which is useful as EmuTOS doesn't support native VIDEL expanders
+  - Limit VDI screen memory usage to 300kB, this allows upto 2048x1200
+    monochrome and 1024x600/800x768 16-color VDI screens
+- GEMDOS HD emulation:
+  - Fix: to DTA host filename cutting to 8+3 chars when whole filename
+    was < 12 chars (caused EmuTOS crash)
+  - Give warning if GEMDOS dir/file path exceeds 8+3 characters
+    (as those won't work with real TOS)
+  - New --gemdos-case option to specify whether new dir/filenames
+    are forced to be created in upper (default) or lower case
+  - Giving empty string as GEMDOS HD dir disables GEMDOS HD emulation
+- SDL GUI:
+  - Fileselector has "CWD" button for changing to Hatari's work directory
+  - Fileselector remembers previous position which is nicer with
+    large directories
+  - Make the drive leds blink with a brighter green when the FDC is executing
+    a command
+- Profiler:
+  - Fix: profiler assert on invalid PC register values
+  - Fix: profiler usage in debugger files invoked by breakpoints
+  - Fix: profiler CPU & DSP cycles information is for previous instruction
+  - Fix: WinUAE CPU requires cycles counter usage for getting current
+    CPU instruction cycles
+  - Profiler provides timing information, based on used cycles
+  - Profiler provides CPU instruction cache misses information when using
+    cycle-exact WinUAE CPU core (which is Falcon emu default)
+  - Profiler top instruction count/cycles/misses lists show
+    the related instructions
+  - For DSP, profiler adds min/max cycle difference info to disassembly
+  - New "addresses" subcommand can be used to see addresses through which
+    code passed during profiling (e.g. while program seems frozen, this
+    gives much better overview of code that is being run, than cpu trace)
+  - New "callers" subcommand lists all addresses from which loaded
+    symbols' addresses were "called" from.  This way one can e.g. find
+    in which contexts interrupt handlers were called and it can be
+    used to construction program execution callgraph
+  - New "save" subcommand saves profile address and caller information
+    to given file, with extra information needed for post-processing
+  - New "stack" subcommand that can be used to get backtraces during
+    profiling with symbols, for ':noinit' backtraces
+- Debugger:
+  - New ':noinit' and ':quiet' breakpoint options.  Quiet option
+    removes most of breakpoint matching "noise" and ':noinit' breakpoints
+    can be used with "profile stack" command, to prevent profile data and
+    related callstack information from being reseted on breakpoint match
+  - "blitter" and "dsp" subcommand added to "info" command, to show
+    blitter register values and DSP state (e.g. stack content)
+  - "prg" subcommand added to "symbols" command, for loading debug
+    symbols from DRI/GST symbol table in last started program
+  - "step" and "next" commands added for single stepping CPU and DSP code
+    -> 's' shortcut is now for "step", not "save"
+  - "--disasm" option for selecting between UAE core and external CPU
+    code dissassembler and setting output option flags for latter
+  - When -D option is used, also undefined/illegal DSP instructions and
+    DSP stack under/overflows invoke debugger, not just CPU issues
+  - Fix: when several breakpoints should have triggered
+         on the same address, only first was handled
+  - Fix: after breakpoint, 'c <n>' continues one instruction too little
+  - Fix: tracking breakpoint values were updated only when all conditions
+    matched, now they can be also used together with other conditions
+  - Fix: info command crash (triggered on NetBSD)
+  - Fix: disassember output bug on NetBSD (usigned char < -1 test)
+  - Fix: info osheader and basebase subcommands under MiNT
+  - Fix: debugger history duplicates removal
+  - Fix: expression expanding CPU "pc" for DSP shortcut commands
+  - Fix: expression expansion messing lines in command line history
+  - Remote API debugger commands can also use expression expansion
+  - Both single and double quotes can be used to mark expressions
+  - In addition to text section offset, data and bss section offsets
+    can be given when loading symbols (useful for Devpac symbols)
+  - Output what value was set by options if it's not otherwise shown by UI
+  - New 'cpu' and 'dsp' options to 'history' command for tracing just
+    one of these processors on Falcon
+  - Function arguments are shown in traces for all non-MiNT GEMDOS calls
+    and subset of arguments are now shown also for AES calls (values in
+    intin array and strings in addrin array)
+  - Add NVRAM read & write tracing
+  - Support for the basic Native Features and --natfeats option to control it:
+    http://wiki.aranym.org/natfeats/proposal
+
+Windows specific changes:
+- "-W" option added for opening a console window.  Like on all other platforms,
+  "-D" will now just toggle CPU exception handling
+- Fix: console stderr redirection (used invalid "wr" mode)
+- Fix Windows localtime() not supporting dates before 1970:
+  - TOS not being able to access files with such dates, or further files
+  - causing IKBD emulation crashes (wasn't problem with Cygwin,
+    just with Mingw builds)
+
+Tool updates:
+- New hatari-profiler.py script for post-processing output from
+  profiler's CPU and DSP profiling "save" commands:
+	profile save <filename>
+	dspprofile save <filename>
+  - With symbol address information it can provide function level
+    instruction, processor cycle & i-cache miss statistics
+  - With callers information it can create function call callgraphs
+    and create callgrind format files for Kcachegrind GUI
+- New gst2ascii tool to extract DRI/GST symbol table from Atari program,
+  for use with the profile data post-processor
+- Added scripts for converting symbol tables in Devpac 3 listings and DSP LOD
+  files to a format understood by Hatari debugger 'symbols' command,
+  and to clean 'nm' output of GCC & VBCC built a.out binaries for it
+
+Other changes:
+- HTML documentation indeces generated dynamically with JS
+- Debugger tests building fixed
+
+Fixed Games:
+  Atomix (MFP, flickering bottom of the screen during samples)
+  BBC 52 Menu (Video/CPU, top border not removed)
+  Bolo (MFP, couldn't start a game)
+  Captain Blood (IKBD, fixed problem when setting the clock)
+  Fokker and Downfall (ACIA/IKBD, had regressed in Hatari v1.6.x)
+  Fuzion CD 77/78/84 Menu (MFP, random crash with digidrums in STF mode)
+  James Pond (Fuzion CD 25) (FDC, game stuck during the intro)
+  Microprose Golf (FDC, crash during the intro)
+  Spidertronic (Zuul CD 84) (crashed before 50/60 Hz screen)
+  Super Hang On and Super Monaco GP (MFP, flickering rasters)
+  The Final Conflict (MFP, locked during the sampled intro music)
+  The Sentinel (IKBD, mouse much too slow)
+  Zuul 100/101 Menu (MFP, flickering top border)
+
+Fixed demos :
+  Anomaly Demo Main Menu by MJJ Prod (MFP, flickering top/bottom borders)
+  Audio Artistic Demo by Big Alec (MFP, bad sample speed at start)
+  Decade Demo - Reset (MFP, flickering bottom border)
+  High Fidelity Dreams by Aura (MFP, flickering left rasters)
+  ST-NICCC 2000 Demo by Oxygene (FDC, demo ran slower than expected)
+
+Fixed apps :
+  Monst v1.x
+  Spectrum 512 (IKBD, mouse too slow)
+  Cubase (when MIDI was enabled after Hatari startup)
+
+
  Version 1.6.2 (2012-06-24):
  ---------------------------
 
@@ -39,6 +298,7 @@ Emulation:
   - Fixes to few Falcon IO registers
   - Changed behavior of the Microwire registers in Falcon mode
 - Misc changes :
+  - IO registers can only be read in supervisor mode
   - Ignore FDC commands when no drive is selected
   - Fix TT SCSI register reads to return all bits zero instead of set
   - Fix for GEMDOS HD emu to direct special CON:/AUX:/PRN: device files
@@ -869,4 +1129,3 @@ Emulator:
  --------------------------
 - Made the WinSTon source code compilable with GNU-C.
 - Added the UAE CPU sources.
-

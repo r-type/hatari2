@@ -1,8 +1,8 @@
 /*
   Hatari - PrefsController.m
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Preferences window controller implementation file
 
@@ -25,6 +25,7 @@
 #include "floppy.h"
 #include "screen.h"
 #include "sdlgui.h"
+
 
 // Macros to transfer data between Cocoa controls and Hatari data structures
 #define EXPORT_TEXTFIELD(nstextfield, target) GuiOsx_ExportPathString([nstextfield stringValue], target, sizeof((target)))
@@ -502,7 +503,7 @@ static const int nSoundFreqs[] =
 	// Commit the new configuration
 	if (applyChanges)
 	{
-		Change_CopyChangedParamsToConfiguration(&CurrentParams, &ConfigureParams, false);
+		Change_CopyChangedParamsToConfiguration(&CurrentParams, &ConfigureParams, true);
 	}
 	else
 	{

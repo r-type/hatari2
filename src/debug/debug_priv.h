@@ -1,8 +1,8 @@
 /*
   Hatari - debug.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Internal header used by debugger files.
 */
@@ -26,8 +26,12 @@ extern FILE *debugOutput;
 
 extern void DebugUI_PrintCmdHelp(const char *psCmd);
 
+extern char *DebugUI_MatchHelper(const char **strings, int items, const char *text, int state);
+
 extern int DebugCpu_Init(const dbgcommand_t **table);
 extern void DebugCpu_InitSession(void);
+
+extern bool DebugUI_ParseFile(const char *path, bool reinit);
 
 #ifdef ENABLE_DSP_EMU
 extern int DebugDsp_Init(const dbgcommand_t **table);

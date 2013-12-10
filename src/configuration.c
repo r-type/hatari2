@@ -1,8 +1,8 @@
 /*
   Hatari - configuration.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Configuration File
 
@@ -28,6 +28,8 @@ const char Configuration_fileid[] = "Hatari configuration.c : " __DATE__ " " __T
 #include "video.h"
 #include "avi_record.h"
 #include "clocks_timings.h"
+#include "68kDisass.h"
+#include "fdc.h"
 
 
 CNF_PARAMS ConfigureParams;                 /* List of configuration for the emulator */
@@ -42,6 +44,8 @@ static const struct Config_Tag configs_Log[] =
 	{ "nTextLogLevel", Int_Tag, &ConfigureParams.Log.nTextLogLevel },
 	{ "nAlertDlgLogLevel", Int_Tag, &ConfigureParams.Log.nAlertDlgLogLevel },
 	{ "bConfirmQuit", Bool_Tag, &ConfigureParams.Log.bConfirmQuit },
+	{ "bNatFeats", Bool_Tag, &ConfigureParams.Log.bNatFeats },
+	{ "bConsoleWindow", Bool_Tag, &ConfigureParams.Log.bConsoleWindow },
 	{ NULL , Error_Tag, NULL }
 };
 
@@ -51,6 +55,8 @@ static const struct Config_Tag configs_Debugger[] =
 	{ "nNumberBase", Int_Tag, &ConfigureParams.Debugger.nNumberBase },
 	{ "nDisasmLines", Int_Tag, &ConfigureParams.Debugger.nDisasmLines },
 	{ "nMemdumpLines", Int_Tag, &ConfigureParams.Debugger.nMemdumpLines },
+	{ "nDisasmOptions", Int_Tag, &ConfigureParams.Debugger.nDisasmOptions },
+	{ "bDisasmUAE", Bool_Tag, &ConfigureParams.Debugger.bDisasmUAE },
 	{ NULL , Error_Tag, NULL }
 };
 
@@ -256,6 +262,8 @@ static const struct Config_Tag configs_Floppy[] =
 {
 	{ "bAutoInsertDiskB", Bool_Tag, &ConfigureParams.DiskImage.bAutoInsertDiskB },
 	{ "FastFloppy", Bool_Tag, &ConfigureParams.DiskImage.FastFloppy },
+	{ "EnableDriveA", Bool_Tag, &ConfigureParams.DiskImage.EnableDriveA },
+	{ "EnableDriveB", Bool_Tag, &ConfigureParams.DiskImage.EnableDriveB },
 	{ "nWriteProtection", Int_Tag, &ConfigureParams.DiskImage.nWriteProtection },
 	{ "szDiskAZipPath", String_Tag, ConfigureParams.DiskImage.szDiskZipPath[0] },
 	{ "szDiskAFileName", String_Tag, ConfigureParams.DiskImage.szDiskFileName[0] },
@@ -271,6 +279,7 @@ static const struct Config_Tag configs_HardDisk[] =
 	{ "bBootFromHardDisk", Bool_Tag, &ConfigureParams.HardDisk.bBootFromHardDisk },
 	{ "bUseHardDiskDirectory", Bool_Tag, &ConfigureParams.HardDisk.bUseHardDiskDirectories },
 	{ "szHardDiskDirectory", String_Tag, ConfigureParams.HardDisk.szHardDiskDirectories[DRIVE_C] },
+	{ "nGemdosCase", Int_Tag, &ConfigureParams.HardDisk.nGemdosCase },
 	{ "nWriteProtection", Int_Tag, &ConfigureParams.HardDisk.nWriteProtection },
 	{ "bUseHardDiskImage", Bool_Tag, &ConfigureParams.HardDisk.bUseHardDiskImage },
 	{ "szHardDiskImage", String_Tag, ConfigureParams.HardDisk.szHardDiskImage },
@@ -372,17 +381,26 @@ void Configuration_SetDefault(void)
 	ConfigureParams.Log.nTextLogLevel = LOG_TODO;
 	ConfigureParams.Log.nAlertDlgLogLevel = LOG_ERROR;
 	ConfigureParams.Log.bConfirmQuit = true;
+	ConfigureParams.Log.bNatFeats = false;
+	ConfigureParams.Log.bConsoleWindow = false;
 
 	/* Set defaults for debugger */
 	ConfigureParams.Debugger.nNumberBase = 10;
 	ConfigureParams.Debugger.nDisasmLines = 8;
 	ConfigureParams.Debugger.nMemdumpLines = 8;
+	/* external one has nicer output, but isn't as complete as UAE one */
+	ConfigureParams.Debugger.bDisasmUAE = false;
+	ConfigureParams.Debugger.nDisasmOptions = Disasm_GetOptions();
 
 	/* Set defaults for floppy disk images */
 	ConfigureParams.DiskImage.bAutoInsertDiskB = true;
 	ConfigureParams.DiskImage.FastFloppy = false;
 	ConfigureParams.DiskImage.nWriteProtection = WRITEPROT_OFF;
-	for (i = 0; i < 2; i++)
+	ConfigureParams.DiskImage.EnableDriveA = true;
+	FDC_EnableDrive ( 0 , ConfigureParams.DiskImage.EnableDriveA );
+	ConfigureParams.DiskImage.EnableDriveB = true;
+	FDC_EnableDrive ( 1 , ConfigureParams.DiskImage.EnableDriveB );
+	for (i = 0; i < MAX_FLOPPYDRIVES; i++)
 	{
 		ConfigureParams.DiskImage.szDiskZipPath[i][0] = '\0';
 		ConfigureParams.DiskImage.szDiskFileName[i][0] = '\0';
@@ -392,6 +410,7 @@ void Configuration_SetDefault(void)
 
 	/* Set defaults for hard disks */
 	ConfigureParams.HardDisk.bBootFromHardDisk = false;
+	ConfigureParams.HardDisk.nGemdosCase = GEMDOS_NOP;
 	ConfigureParams.HardDisk.nWriteProtection = WRITEPROT_OFF;
 	ConfigureParams.HardDisk.nHardDiskDir = DRIVE_C;
 	ConfigureParams.HardDisk.bUseHardDiskDirectories = false;
@@ -642,6 +661,10 @@ void Configuration_Apply(bool bReset)
 	File_MakeAbsoluteSpecialName(ConfigureParams.Midi.sMidiInFileName);
 	File_MakeAbsoluteSpecialName(ConfigureParams.Midi.sMidiOutFileName);
 	File_MakeAbsoluteSpecialName(ConfigureParams.Printer.szPrintToFileName);
+
+	/* Enable/disable floppy drives */
+	FDC_EnableDrive ( 0 , ConfigureParams.DiskImage.EnableDriveA );
+	FDC_EnableDrive ( 1 , ConfigureParams.DiskImage.EnableDriveB );
 }
 
 
@@ -770,8 +793,10 @@ void Configuration_MemorySnapShot_Capture(bool bSave)
 
 	MemorySnapShot_Store(&ConfigureParams.DiskImage.szDiskFileName[0], sizeof(ConfigureParams.DiskImage.szDiskFileName[0]));
 	MemorySnapShot_Store(&ConfigureParams.DiskImage.szDiskZipPath[0], sizeof(ConfigureParams.DiskImage.szDiskZipPath[0]));
+	MemorySnapShot_Store(&ConfigureParams.DiskImage.EnableDriveA, sizeof(ConfigureParams.DiskImage.EnableDriveA));
 	MemorySnapShot_Store(&ConfigureParams.DiskImage.szDiskFileName[1], sizeof(ConfigureParams.DiskImage.szDiskFileName[1]));
 	MemorySnapShot_Store(&ConfigureParams.DiskImage.szDiskZipPath[1], sizeof(ConfigureParams.DiskImage.szDiskZipPath[1]));
+	MemorySnapShot_Store(&ConfigureParams.DiskImage.EnableDriveB, sizeof(ConfigureParams.DiskImage.EnableDriveB));
 
 	MemorySnapShot_Store(&ConfigureParams.HardDisk.bUseHardDiskDirectories, sizeof(ConfigureParams.HardDisk.bUseHardDiskDirectories));
 	MemorySnapShot_Store(ConfigureParams.HardDisk.szHardDiskDirectories[DRIVE_C], sizeof(ConfigureParams.HardDisk.szHardDiskDirectories[DRIVE_C]));

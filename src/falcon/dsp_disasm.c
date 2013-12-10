@@ -24,7 +24,9 @@
 #endif
 
 #include <string.h>
+#include <inttypes.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #include "dsp_core.h"
 #include "dsp_cpu.h"
@@ -540,7 +542,9 @@ Uint16 dsp56k_disasm(dsp_trace_disasm_t mode)
 const char* dsp56k_getInstructionText(void)
 {
 	const int len = sizeof(str_instr);
-	Uint32 count, cycles;
+	Uint64 count, cycles;
+	Uint16 cycle_diff;
+	float percentage;
 	int offset;
 
 	if (isLooping) {
@@ -551,9 +555,10 @@ const char* dsp56k_getInstructionText(void)
 	} else {
 		offset = sprintf(str_instr2, "p:%04x  %06x %06x  (%02d cyc)  %-*s\n", prev_inst_pc, cur_inst, read_memory(prev_inst_pc + 1), dsp_core.instr_cycle, len, str_instr);
 	}
-	if (offset > 2 && Profile_DspAddressData(prev_inst_pc, &count, &cycles)) {
+	if (offset > 2 && Profile_DspAddressData(prev_inst_pc, &percentage, &count, &cycles, &cycle_diff)) {
 		offset -= 2;
-		sprintf(str_instr2+offset, "%d/%d times/cycles\n", count, cycles);
+		sprintf(str_instr2+offset, "%5.2f%% (%"PRId64", %"PRId64", %d)\n",
+		        percentage, count, cycles, cycle_diff);
 	}
 	return str_instr2;
 } 
@@ -672,6 +677,9 @@ static void opcode8h_0(void)
 			break;
 		case 0x00008c:
 			dsp_enddo();
+			break;
+		default:
+			dsp_undefined();
 			break;
 	}
 }

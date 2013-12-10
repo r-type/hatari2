@@ -1,8 +1,8 @@
 /*
   Hatari - hatari-glue.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   This file contains some code to glue the UAE CPU core to the rest of the
   emulator and Hatari's "illegal" opcodes.
@@ -17,6 +17,7 @@ const char HatariGlue_fileid[] = "Hatari hatari-glue.c : " __DATE__ " " __TIME__
 #include "cycInt.h"
 #include "tos.h"
 #include "gemdos.h"
+#include "natfeats.h"
 #include "cart.h"
 #include "vdi.h"
 #include "stMemory.h"
@@ -24,10 +25,13 @@ const char HatariGlue_fileid[] = "Hatari hatari-glue.c : " __DATE__ " " __TIME__
 #include "screen.h"
 #include "video.h"
 #include "psg.h"
+#include "mfp.h"
+#include "fdc.h"
 
 #include "sysdeps.h"
 #include "maccess.h"
 #include "memory.h"
+#include "m68000.h"
 #include "newcpu.h"
 #include "cpu_prefetch.h"
 #include "hatari-glue.h"
@@ -40,20 +44,27 @@ int pendingInterrupts = 0;
 
 /**
  * Reset custom chips
+ * In case the RESET instruction is called, we must reset all the peripherals
+ * connected to the CPU's reset pin.
  */
 void customreset(void)
 {
 	pendingInterrupts = 0;
 
-	/* In case the 6301 was executing a custom program from its RAM */
-	/* we must turn it back to the 'normal' mode. */
-	IKBD_Reset_ExeMode ();
+	/* Reset the IKBD */
+	IKBD_Reset ( false );
 
 	/* Reseting the GLUE video chip should also set freq/res register to 0 */
 	Video_Reset_Glue ();
 
         /* Reset the YM2149 (stop any sound) */
         PSG_Reset ();
+
+	/* Reset the MFP */
+	MFP_Reset ();
+
+	/* Reset the FDC */
+	FDC_Reset ( false );
 }
 
 
@@ -67,6 +78,7 @@ int intlev(void)
 	/* There are only VBL and HBL autovector interrupts in the ST... */
 	assert((pendingInterrupts & ~((1<<4)|(1<<2))) == 0);
 
+#if 0
 	if (pendingInterrupts & (1 << 4))         /* VBL interrupt? */
 	{
 		if (regs.intmask < 4)
@@ -79,6 +91,12 @@ int intlev(void)
 			pendingInterrupts &= ~(1 << 2);
 		return 2;
 	}
+#else
+	if ( pendingInterrupts & (1 << 4) )		/* VBL interrupt ? */
+		return 4;
+	else if ( pendingInterrupts & (1 << 2) )	/* HBL interrupt ? */
+		return 2;
+#endif
 
 	return -1;
 }
@@ -177,14 +195,63 @@ unsigned long OpCode_GemDos(uae_u32 opcode)
  */
 unsigned long OpCode_VDI(uae_u32 opcode)
 {
-	VDI_Complete();
+	Uint32 pc = M68000_GetPC();
 
-	/* Set PC back to where originated from to continue instruction decoding */
-	m68k_setpc(VDI_OldPC);
+	/* this is valid only after VDI trap, called from cartridge code */
+	if (VDI_OldPC && pc >= 0xfa0000 && pc < 0xfc0000)
+	{
+		VDI_Complete();
+
+		/* Set PC back to where originated from to continue instruction decoding */
+		m68k_setpc(VDI_OldPC);
+		VDI_OldPC = 0;
+	}
+	else
+	{
+		/* illegal instruction */
+		op_illg(opcode);
+	}
 
 	get_word_prefetch (0);
 	regs.ir = regs.irc;
 	get_word_prefetch(2);
 
+	return 4 * CYCLE_UNIT / 2;
+}
+
+
+/**
+ * Emulator Native Features ID opcode interception.
+ */
+unsigned long OpCode_NatFeat_ID(uae_u32 opcode)
+{
+	Uint32 stack = Regs[REG_A7] + SIZE_LONG;	/* skip return address */
+	Uint16 SR = M68000_GetSR();
+
+	if (NatFeat_ID(stack, &(Regs[REG_D0]))) {
+		M68000_SetSR(SR);
+		m68k_incpc(2);
+		regs.ir = regs.irc;
+		get_word_prefetch(2);
+	}
+	return 4 * CYCLE_UNIT / 2;
+}
+
+/**
+ * Emulator Native Features call opcode interception.
+ */
+unsigned long OpCode_NatFeat_Call(uae_u32 opcode)
+{
+	Uint32 stack = Regs[REG_A7] + SIZE_LONG;	/* skip return address */
+	Uint16 SR = M68000_GetSR();
+	bool super;
+
+	super = ((SR & SR_SUPERMODE) == SR_SUPERMODE);
+	if (NatFeat_Call(stack, super, &(Regs[REG_D0]))) {
+		M68000_SetSR(SR);
+		m68k_incpc(2);
+		regs.ir = regs.irc;
+		get_word_prefetch(2);
+	}
 	return 4 * CYCLE_UNIT / 2;
 }

@@ -1,8 +1,8 @@
 /*
   Hatari - zip.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Zipped disk support, uses zlib
 */
@@ -36,6 +36,7 @@ const char ZIP_fileid[] = "Hatari zip.c : " __DATE__ " " __TIME__;
 
 #define ZIP_PATH_MAX  256
 
+#if HAVE_LIBZ
 
 /* Possible disk image extensions to scan for */
 static const char * const pszDiskNameExts[] =
@@ -590,18 +591,6 @@ Uint8 *ZIP_ReadDisk(const char *pszFileName, const char *pszZipPath, long *pImag
 
 /*-----------------------------------------------------------------------*/
 /**
- * Save .ZIP file from memory buffer. Returns true if all is OK.
- *
- * Not yet implemented.
- */
-bool ZIP_WriteDisk(const char *pszFileName,unsigned char *pBuffer,int ImageSize)
-{
-	return false;
-}
-
-
-/*-----------------------------------------------------------------------*/
-/**
  * Load first file from a .ZIP archive into memory, and return the number
  * of bytes loaded.
  */
@@ -659,4 +648,38 @@ Uint8 *ZIP_ReadFirstFile(const char *pszFileName, long *pImageSize, const char *
 		*pImageSize = file_info.uncompressed_size;
 
 	return pBuffer;
+}
+
+#else
+
+bool ZIP_FileNameIsZIP(const char *pszFileName)
+{
+	return false;
+}
+Uint8 *ZIP_ReadDisk(const char *name, const char *path, long *size)
+{
+	return NULL;
+}
+struct dirent **ZIP_GetFilesDir(const zip_dir *zip, const char *dir, int *entries)
+{
+	return NULL;
+}
+zip_dir *ZIP_GetFiles(const char *pszFileName)
+{
+	return NULL;
+}
+void ZIP_FreeZipDir(zip_dir *f_zd)
+{
+}
+
+#endif  /* HAVE_LIBZ */
+
+/**
+ * Save .ZIP file from memory buffer. Returns true if all is OK.
+ *
+ * Not yet implemented.
+ */
+bool ZIP_WriteDisk(const char *pszFileName,unsigned char *pBuffer,int ImageSize)
+{
+	return false;
 }

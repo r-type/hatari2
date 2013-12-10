@@ -20,6 +20,8 @@
 	Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
 
+#include <ctype.h>
+
 #include "main.h"
 #include "sysdeps.h"
 #include "newcpu.h"
@@ -29,9 +31,9 @@
 #include "crossbar.h"
 #include "configuration.h"
 #include "cycInt.h"
+#include "m68000.h"
 
 #if ENABLE_DSP_EMU
-#include "m68000.h"
 #include "debugdsp.h"
 #include "dsp_cpu.h"
 #include "dsp_disasm.h"
@@ -48,21 +50,22 @@
 
 
 #if ENABLE_DSP_EMU
-static Sint32 save_cycles;
-#endif
-static bool bDspDebugging;
-
-bool bDspEnabled = false;
-bool bDspHostInterruptPending = false;
-
 static const char* x_ext_memory_addr_name[] = {
 	"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
 	"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
 	"PBC", "PCC", "PBDDR", "PCDDR", "PBD", "PCD", "", "",
 	"HCR", "HSR", "", "HRX/HTX", "CRA", "CRB", "SSISR/TSR", "RX/TX",
 	"SCR", "SSR", "SCCR", "STXA", "SRX/STX", "SRX/STX", "SRX/STX", "",
-	"", "", "", "", "", "", "BCR", "IPR"	
+	"", "", "", "", "", "", "BCR", "IPR"
 };
+
+static Sint32 save_cycles;
+#endif
+
+static bool bDspDebugging;
+
+bool bDspEnabled = false;
+bool bDspHostInterruptPending = false;
 
 
 /**
@@ -72,12 +75,28 @@ static const char* x_ext_memory_addr_name[] = {
 static void DSP_TriggerHostInterrupt(void)
 {
 	bDspHostInterruptPending = true;
+	M68000_SetSpecial(SPCFLAG_DSP);
+}
+#endif
 
-	/* Note: The DSP interrupt is not wired to the MFP on a real Falcon
-	 * (but to the COMBEL chip). But in Hatari we still handle it with
-	 * the SPCFLAG_MFP to avoid taking care of another special flag in
-	 * the CPU core! */
-	M68000_SetSpecial(SPCFLAG_MFP);
+
+/**
+ * This function is called from the CPU emulation part when SPCFLAG_DSP is set.
+ * If the DSP's IRQ signal is set, we check that SR allows a level 6 interrupt,
+ * and if so, we call M68000_Exception.
+ */
+#if ENABLE_DSP_EMU
+bool	DSP_ProcessIRQ(void)
+{
+	if (bDspHostInterruptPending && regs.intmask < 6)
+	{
+		M68000_Exception(IoMem_ReadByte(0xffa203)*4, M68000_EXC_SRC_INT_DSP);
+		bDspHostInterruptPending = false;
+		M68000_UnsetSpecial(SPCFLAG_DSP);
+		return true;
+	}
+
+	return false;
 }
 #endif
 
@@ -157,9 +176,9 @@ void DSP_Run(int nHostCycles)
         if (unlikely(bDspDebugging)) {
                 while (save_cycles > 0)
                 {
-                        DebugDsp_Check();
                         dsp56k_execute_instruction();
                         save_cycles -= dsp_core.instr_cycle;
+                        DebugDsp_Check();
                 }
         } else {
 		//	fprintf(stderr, "--> %d\n", save_cycles);
@@ -195,6 +214,38 @@ Uint16 DSP_GetPC(void)
 }
 
 /**
+ * Get next DSP PC without output (for debugging)
+ */
+Uint16 DSP_GetNextPC(Uint16 pc)
+{
+#if ENABLE_DSP_EMU
+	/* code is reduced copy from dsp56k_execute_one_disasm_instruction() */
+	dsp_core_t dsp_core_save;
+	Uint16 instruction_length;
+
+	if (!bDspEnabled)
+		return 0;
+
+	/* Save DSP context */
+	memcpy(&dsp_core_save, &dsp_core, sizeof(dsp_core));
+
+	/* Disasm instruction */
+	dsp_core.pc = pc;
+	/* why dsp56k_execute_one_disasm_instruction() does "-1"
+	 * for this value, that doesn't seem right???
+	 */
+	instruction_length = dsp56k_disasm(DSP_DISASM_MODE);
+
+	/* Restore DSP context */
+	memcpy(&dsp_core, &dsp_core_save, sizeof(dsp_core));
+
+	return pc + instruction_length;
+#else
+	return 0;
+#endif
+}
+
+/**
  * Get current DSP instruction cycles (for profiling)
  */
 Uint16 DSP_GetInstrCycles(void)
@@ -211,13 +262,13 @@ Uint16 DSP_GetInstrCycles(void)
 /**
  * Disassemble DSP code between given addresses, return next PC address
  */
-Uint16 DSP_DisasmAddress(Uint16 lowerAdr, Uint16 UpperAdr)
+Uint16 DSP_DisasmAddress(FILE *out, Uint16 lowerAdr, Uint16 UpperAdr)
 {
 #if ENABLE_DSP_EMU
 	Uint16 dsp_pc;
 
 	for (dsp_pc=lowerAdr; dsp_pc<=UpperAdr; dsp_pc++) {
-		dsp_pc += dsp56k_execute_one_disasm_instruction(dsp_pc);
+		dsp_pc += dsp56k_execute_one_disasm_instruction(out, dsp_pc);
 	}
 	return dsp_pc;
 #else
@@ -357,7 +408,49 @@ Uint16 DSP_DisasmMemory(Uint16 dsp_memdump_addr, Uint16 dsp_memdump_upper, char 
 	return dsp_memdump_upper+1;
 }
 
+/**
+ * Show information on DSP core state which isn't
+ * shown by any of the other commands (dd, dm, dr).
+ */
+void DSP_Info(Uint32 dummy)
+{
+#if ENABLE_DSP_EMU
+	int i, j;
+	const char *stackname[] = { "SSH", "SSL" };
 
+	fputs("DSP core information:\n", stderr);
+
+	for (i = 0; i < ARRAYSIZE(stackname); i++) {
+		fprintf(stderr, "- %s stack:", stackname[i]);
+		for (j = 0; j < ARRAYSIZE(dsp_core.stack[0]); j++) {
+			fprintf(stderr, " %04hx", dsp_core.stack[i][j]);
+		}
+		fputs("\n", stderr);
+	}
+
+	fprintf(stderr, "- Interrupt IPL:");
+	for (i = 0; i < ARRAYSIZE(dsp_core.interrupt_ipl); i++) {
+		fprintf(stderr, " %04hx", dsp_core.interrupt_ipl[i]);
+	}
+	fputs("\n", stderr);
+
+	fprintf(stderr, "- Pending ints: ");
+	for (i = 0; i < ARRAYSIZE(dsp_core.interrupt_isPending); i++) {
+		fprintf(stderr, " %04hx", dsp_core.interrupt_isPending[i]);
+	}
+	fputs("\n", stderr);
+
+	fprintf(stderr, "- Hostport:");
+	for (i = 0; i < ARRAYSIZE(dsp_core.hostport); i++) {
+		fprintf(stderr, " %02x", dsp_core.hostport[i]);
+	}
+	fputs("\n", stderr);
+#endif
+}
+
+/**
+ * Show DSP register contents
+ */
 void DSP_DisasmRegisters(void)
 {
 #if ENABLE_DSP_EMU
@@ -491,7 +584,7 @@ int DSP_GetRegisterAddress(const char *regname, Uint32 **addr, Uint32 *mask)
 	
 	/* bisect */
 	l = 0;
-	r = sizeof (registers) / sizeof (*registers) - 1;
+	r = ARRAYSIZE(registers) - 1;
 	do {
 		m = (l+r) >> 1;
 		for (i = 0; i < len; i++) {
@@ -669,13 +762,13 @@ void DSP_HandleReadAccess(void)
 	{
 #if ENABLE_DSP_EMU
 		value = dsp_core_read_host(addr-DSP_HW_OFFSET);
-		if (multi_access == true)
-			M68000_AddCycles(4);
-		multi_access = true;
 #else
 		/* this value prevents TOS from hanging in the DSP init code */
 		value = 0xff;
 #endif
+		if (multi_access == true)
+			M68000_AddCycles(4);
+		multi_access = true;
 
 		Dprintf(("HWget_b(0x%08x)=0x%02x at 0x%08x\n", addr, value, m68k_getpc()));
 		IoMem_WriteByte(addr, value);
@@ -690,18 +783,17 @@ void DSP_HandleReadAccess(void)
 void DSP_HandleWriteAccess(void)
 {
 	Uint32 addr;
-	Uint8 value;
 	bool multi_access = false; 
 
 	for (addr = IoAccessBaseAddress; addr < IoAccessBaseAddress+nIoMemAccessSize; addr++)
 	{
-		value = IoMem_ReadByte(addr);
-		Dprintf(("HWput_b(0x%08x,0x%02x) at 0x%08x\n", addr, value, m68k_getpc()));
 #if ENABLE_DSP_EMU
+		Uint8 value = IoMem_ReadByte(addr);
+		Dprintf(("HWput_b(0x%08x,0x%02x) at 0x%08x\n", addr, value, m68k_getpc()));
 		dsp_core_write_host(addr-DSP_HW_OFFSET, value);
+#endif
 		if (multi_access == true)
 			M68000_AddCycles(4);
 		multi_access = true;
-#endif
 	}
 }

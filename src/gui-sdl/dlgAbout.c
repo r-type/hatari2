@@ -1,14 +1,15 @@
 /*
   Hatari - dlgAbout.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Show information about the program and its license.
 */
 const char DlgAbout_fileid[] = "Hatari dlgAbout.c : " __DATE__ " " __TIME__;
 
 #include "main.h"
+#include "version.h"
 #include "dialog.h"
 #include "sdlgui.h"
 

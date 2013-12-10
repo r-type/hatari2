@@ -1,8 +1,8 @@
 /*
   Hatari - debugui.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Public debugger UI header file.
 */
@@ -20,6 +20,7 @@ enum {
 typedef enum {
 	REASON_NONE,       // uninitialized
 	REASON_CPU_EXCEPTION,
+	REASON_DSP_EXCEPTION,
 	REASON_CPU_BREAKPOINT,
 	REASON_DSP_BREAKPOINT,
 	REASON_CPU_STEPS,
@@ -32,8 +33,7 @@ extern int bExceptionDebugging;
 
 extern void DebugUI_Init(void);
 extern void DebugUI(debug_reason_t reason);
-extern bool DebugUI_RemoteParse(char *input);
-extern bool DebugUI_ParseFile(const char *path);
+extern bool DebugUI_ParseLine(const char *input);
 extern bool DebugUI_SetParseFile(const char *input);
 extern void DebugUI_MemorySnapShot_Capture(const char *path, bool bSave);
 

@@ -7,8 +7,8 @@
   *
   * Adaptation to Hatari by Thomas Huth
   *
-  * This file is distributed under the GNU Public License, version 2 or at
-  * your option any later version. Read the file gpl.txt for details.
+  * This file is distributed under the GNU General Public License, version 2
+  * or at your option any later version. Read the file gpl.txt for details.
   */
 
 #ifndef UAE_NEWCPU_H
@@ -39,6 +39,7 @@
 #define SPCFLAG_MFP 0x200
 #define SPCFLAG_EXEC 0x400
 #define SPCFLAG_MODE_CHANGE 0x800
+#define SPCFLAG_DSP 0x1000
 
 
 #ifndef SET_CFLG

@@ -1,8 +1,8 @@
 /*
   Hatari - main.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Main initialization and event handling routines.
 */
@@ -13,6 +13,7 @@ const char Main_fileid[] = "Hatari main.c : " __DATE__ " " __TIME__;
 #include <SDL.h>
 
 #include "main.h"
+#include "version.h"
 #include "configuration.h"
 #include "control.h"
 #include "options.h"
@@ -22,8 +23,10 @@ const char Main_fileid[] = "Hatari main.c : " __DATE__ " " __TIME__;
 #include "floppy.h"
 #include "floppy_ipf.h"
 #include "gemdos.h"
+#include "fdc.h"
 #include "hdc.h"
 #include "ide.h"
+#include "acia.h"
 #include "ikbd.h"
 #include "ioMem.h"
 #include "keymap.h"
@@ -120,12 +123,12 @@ static Uint32 Main_GetTicks(void)
 
 static Sint64	Time_GetTicks ( void )
 {
-        Sint64		ticks_micro;
+	Sint64	ticks_micro;
 
 #if HAVE_GETTIMEOFDAY
-        struct timeval	now;
-        gettimeofday ( &now , NULL );
-        ticks_micro = (Sint64)now.tv_sec * 1000000 + now.tv_usec;
+	struct timeval	now;
+	gettimeofday ( &now , NULL );
+	ticks_micro = (Sint64)now.tv_sec * 1000000 + now.tv_usec;
 #else
 	ticks_micro = (Sint64)SDL_GetTicks() * 1000;		/* milli sec -> micro sec */
 #endif
@@ -294,16 +297,18 @@ void Main_WaitOnVbl(void)
 	FrameDuration_micro = ClocksTimings_GetVBLDuration_micro ( ConfigureParams.System.nMachineType , nScreenRefreshRate );
 	CurrentTicks = Time_GetTicks();
 
-	if ( DestTicks == 0 )					/* first call, init DestTicks */
+	if (DestTicks == 0)			/* on first call, init DestTicks */
+	{
 		DestTicks = CurrentTicks + FrameDuration_micro;
+	}
 
-	DestTicks += pulse_swallowing_count; /* audio.c - Audio_CallBack() */
+	DestTicks += pulse_swallowing_count;	/* audio.c - Audio_CallBack() */
 
 	nDelay = DestTicks - CurrentTicks;
 
 	/* Do not wait if we are in fast forward mode or if we are totally out of sync */
 	if (ConfigureParams.System.bFastForward == true
-	        || nDelay < -4*FrameDuration_micro)
+	    || nDelay < -4*FrameDuration_micro || nDelay > 50*FrameDuration_micro)
 	{
 		if (ConfigureParams.System.bFastForward == true)
 		{
@@ -348,6 +353,10 @@ void Main_WaitOnVbl(void)
 	{
 		CurrentTicks = Time_GetTicks();
 		nDelay = DestTicks - CurrentTicks;
+		/* If the delay is still bigger than one frame, somebody
+		 * played tricks with the system clock and we have to abort */
+		if (nDelay > FrameDuration_micro)
+			break;
 	}
 
 //printf ( "tick %lld\n" , CurrentTicks );
@@ -567,6 +576,17 @@ void Main_SetTitle(const char *title)
 
 /*-----------------------------------------------------------------------*/
 /**
+ * Initialise emulation for some hardware components
+ * It is required to init those parts before parsing the parameters,
+ * (for example, we should init FDC before inserting a disk)
+ */
+static void Main_Init_HW(void)
+{
+	FDC_Init();
+}
+
+/*-----------------------------------------------------------------------*/
+/**
  * Initialise emulation
  */
 static void Main_Init(void)
@@ -603,11 +623,15 @@ static void Main_Init(void)
 	Screen_Init();
 	Main_SetTitle(NULL);
 	HostScreen_Init();
+
+	ACIA_Init( ACIA_Array , MachineClocks.ACIA_Freq , MachineClocks.ACIA_Freq );
+	IKBD_Init();			/* After ACIA_Init */
+
 	DSP_Init();
 	Floppy_Init();
+//	FDC_Init();
 	M68000_Init();                /* Init CPU emulation */
 	Audio_Init();
-	DmaSnd_Init();
 	Keymap_Init();
 
 	/* Init HD emulation */
@@ -751,7 +775,10 @@ int main(int argc, char *argv[])
 	/* Initialize directory strings */
 	Paths_Init(argv[0]);
 
-	/* Set default configuration values: */
+	/* Init some HW components before parsing the configuration / parameters */
+	Main_Init_HW();
+
+	/* Set default configuration values */
 	Configuration_SetDefault();
 
 	/* Now load the values from the configuration file */
@@ -787,7 +814,7 @@ int main(int argc, char *argv[])
 	/* Check if SDL_Delay is accurate */
 	Main_CheckForAccurateDelays();
 
-	if ( AviRecordOnStartup )	/* Immediatly starts avi recording ? */
+	if ( AviRecordOnStartup )	/* Immediately starts avi recording ? */
 		Avi_StartRecording ( ConfigureParams.Video.AviRecordFile , ConfigureParams.Screen.bCrop ,
 			ConfigureParams.Video.AviRecordFps == 0 ?
 				ClocksTimings_GetVBLPerSec ( ConfigureParams.System.nMachineType , nScreenRefreshRate ) :

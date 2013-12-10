@@ -1,8 +1,8 @@
 /*
   Hatari - cycles.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Here we take care of cycle counters. For performance reasons we don't increase
   all counters after each 68k instruction, but only one main counter.
@@ -39,11 +39,11 @@ int	nCyclesMainCounter;			/* Main cycles counter since previous Cycles_UpdateCou
 
 static int nCyclesCounter[CYCLES_COUNTER_MAX];	/* Array with all counters */
 
-Sint64	CyclesGlobalClockCounter;		/* Gloabl clock counter since previous reset */
+Uint64	CyclesGlobalClockCounter = 0;		/* Global clock counter since starting Hatari (it's never reset afterwards) */
 
 int	CurrentInstrCycles;
-int	MovepByteNbr;				/* Number of the byte currently transferred in a movep (1..2 or 1..4) */
-
+int	MovepByteNbr = 0;			/* Number of the byte currently transferred in a movep (1..2 or 1..4) */
+						/* 0 means current instruction is not a movep */
 
 
 static void	Cycles_UpdateCounters(void);
@@ -78,8 +78,6 @@ static void Cycles_UpdateCounters(void)
 	{
 		nCyclesCounter[i] += nCyclesMainCounter;
 	}
-
-	CyclesGlobalClockCounter += nCyclesMainCounter;
 
 	nCyclesMainCounter = 0;
 }
@@ -224,12 +222,11 @@ int Cycles_GetCounterOnWriteAccess(int nId)
  * Read the main clock counter on CPU memory read access by taking care of the instruction
  * type (add the needed amount of additional cycles).
  */
-Sint64 Cycles_GetClockCounterOnReadAccess(void)
+Uint64 Cycles_GetClockCounterOnReadAccess(void)
 {
 	int AddCycles;
 
 	AddCycles = Cycles_GetInternalCycleOnReadAccess();
-	Cycles_UpdateCounters();
 
 	return CyclesGlobalClockCounter + AddCycles;
 }
@@ -240,13 +237,14 @@ Sint64 Cycles_GetClockCounterOnReadAccess(void)
  * Read the main clock counter on CPU memory write access by taking care of the instruction
  * type (add the needed amount of additional cycles).
  */
-Sint64 Cycles_GetClockCounterOnWriteAccess(void)
+Uint64 Cycles_GetClockCounterOnWriteAccess(void)
 {
 	int AddCycles;
 
 	AddCycles = Cycles_GetInternalCycleOnWriteAccess();
-	Cycles_UpdateCounters();
 
 	return CyclesGlobalClockCounter + AddCycles;
 }
+
+
 

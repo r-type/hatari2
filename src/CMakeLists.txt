@@ -1,6 +1,6 @@
 
 set(SOURCES
-	audio.c avi_record.c bios.c blitter.c cart.c cfgopts.c
+	acia.c audio.c avi_record.c bios.c blitter.c cart.c cfgopts.c
 	clocks_timings.c configuration.c options.c change.c
 	control.c cycInt.c cycles.c dialog.c dmaSnd.c fdc.c file.c
 	floppy.c floppy_ipf.c gemdos.c hd6301_cpu.c hdc.c ide.c ikbd.c ioMem.c
@@ -24,8 +24,8 @@ if(ENABLE_OSX_BUNDLE)
 	    gui-osx/Hatari.icns gui-osx/English.lproj gui-osx/French.lproj)
 endif(ENABLE_OSX_BUNDLE)
 
-# When building for Windows, define specific sources for gui and ressources
-# and set the subsytem of the resulting .exe to "windows GUI" instead of "console"
+# When building for Windows, define specific sources for gui and resources
+# and set the subsystem of the resulting .exe to "windows GUI" instead of "console"
 if(WIN32)
 	set(GUIWIN_SOURCES gui-win/opencon.c)
 	set(GUIWIN_RES gui-win/hatari-winicon.rc)
@@ -99,7 +99,7 @@ else()
 	add_executable(hatari ${SOURCES})
 endif(ENABLE_OSX_BUNDLE)
 
-target_link_libraries(hatari Debug Falcon GuiSdl Floppy UaeCpu ${SDL_LIBRARY})
+target_link_libraries(hatari Falcon GuiSdl Floppy UaeCpu Debug ${SDL_LIBRARY})
 
 if(MATH_FOUND AND NOT APPLE)
 	target_link_libraries(hatari ${MATH_LIBRARY})

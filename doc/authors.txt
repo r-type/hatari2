@@ -9,10 +9,11 @@
   admin, currently more or less in hibernation mode.
 
 - Eero Tamminen <oak at helsinkinet fi> : Speed improvements & code
-  cleanup, parts of the STE emulation, Hatari embedding & remote
-  control, pause & auto frameskip support, statusbar & overlay led,
-  conditional breakpoints and other debugger improvements, PNG saving
-  and other patches.
+  cleanup, small parts of the STE emulation, Python CLI, UI & TOS
+  tester + Hatari window embedding & remote control API, pause & auto
+  frameskip support, statusbar & overlay led, conditional breakpoints
+  and other debugger features, GEMDOS HD emulation improvements, PNG
+  saving.
 
 - Laurent Sallafranque: Many fixes and speedups to DSP emulation,
   DSP debugging support, crossbar emulation, falcon microphone
@@ -95,7 +96,8 @@ is missing here, please remind me!):
 - Volker Seebode: Fix to ASCI emulation to get other than AHDI drivers
   working.
 
-- Cyprian Konador: Found some bugs in the blitter cycles emulation
+- Cyprian Konador: Found some bugs in the blitter cycles emulation,
+  duochrome and samplehold modes for TT video emulation.
 
 - Jerome Vernet: Some updates to the OS X Xcode project file and OS X
   GUI, supplied a french keymapping file for OS X.
@@ -120,10 +122,19 @@ is missing here, please remind me!):
 - nash67: tested hundreds (!) of games from various CD compilations
   and reported the non working ones on atari-forum.com. Huge thanks for
   that tedious work, it helped tracking down some less common cases
-  not used in demos (keyboard, joystick, FDC, tos, ...)
+  not used in demos (keyboard, joystick, FDC, tos, ...).
 
 - Gilles Fetis: fixes to MMU emulation (from NeXT emulator project
-  using Hatari code)
+  using Hatari code).
+
+- Peter Putnik (Petari): for helping with tracking the cause of the crash
+  in Microprose Golf (FDC emulation). Also wrote some useful tools
+  to handle floppies (flofor, floimg).
+
+- Jean Louis Guerin (DrCoolZic): for the 'Panzer' program, very useful to test
+  some FDC behaviours and timings on real hardware and to compare them
+  with the emulated system. Also wrote some nice docs on WD1772
+  and methods commonly used for games' protections.
 
 
  Code from other projects
@@ -157,12 +168,17 @@ projects which we would like to acknowledge here:
 - The routines for saving and loading the ASCII configuration file
   (cfgopts.c) have originally been written by Jeffry J. Brickley.
 
-- The new sound core uses some code/ideas from the following GPL
+- The new sound core uses (or used) some code/ideas from the following GPL
   projects :
   * 5 bits volume table and 16*16*16 combinations of all volume are
     from Sc68 by Benjamin Gerard.
   * 4 bits to 5 bits volume interpolation from 16*16*16 to 32*32*32
     are from YM blep synthesis by Antti Lankila.
+  * Since Hatari 1.7, volume table based on measures by Paulo Simoes
 
 - The IDE hard disk emulation is based on code from QEMU.
   (http://www.qemu.org/)
+
+- The MMU emulation for the 68030 has been taken from the NeXT emulator
+  Previous (thanks to Andreas Grabher!)
+

@@ -1,8 +1,8 @@
 /*
   Hatari - log.h
   
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 #ifndef HATARI_LOG_H
 #define HATARI_LOG_H
@@ -90,37 +90,41 @@ extern char *Log_MatchTrace(const char *text, int state);
 
 #define	TRACE_FDC		 (1<<19)
 
-#define	TRACE_IKBD_CMDS 	 (1<<20)
-#define	TRACE_IKBD_ACIA 	 (1<<21)
-#define	TRACE_IKBD_EXEC 	 (1<<22)
+#define TRACE_ACIA		 (1<<20)
 
-#define TRACE_BLITTER		 (1<<23)
+#define	TRACE_IKBD_CMDS 	 (1<<21)
+#define	TRACE_IKBD_ACIA 	 (1<<22)
+#define	TRACE_IKBD_EXEC 	 (1<<23)
 
-#define TRACE_OS_BIOS		 (1<<24)
-#define TRACE_OS_XBIOS  	 (1<<25)
-#define TRACE_OS_GEMDOS 	 (1<<26)
-#define TRACE_OS_VDI		 (1<<27)
-#define TRACE_OS_AES		 (1<<28)
+#define TRACE_BLITTER		 (1<<24)
 
-#define TRACE_IOMEM_RD  	 (1<<29)
-#define TRACE_IOMEM_WR  	 (1<<30)
+#define TRACE_OS_BIOS		 (1<<25)
+#define TRACE_OS_XBIOS  	 (1<<26)
+#define TRACE_OS_GEMDOS 	 (1<<27)
+#define TRACE_OS_VDI		 (1<<28)
+#define TRACE_OS_AES		 (1<<29)
 
-#define TRACE_DMASND		 (1<<31)
+#define TRACE_IOMEM_RD  	 (1<<30)
+#define TRACE_IOMEM_WR  	 (1ULL<<31)
 
-#define TRACE_CROSSBAR		 (1ll<<32)
-#define TRACE_VIDEL		 (1ll<<33)
+#define TRACE_DMASND		 (1ll<<32)
 
-#define TRACE_DSP_HOST_INTERFACE (1ll<<34)
-#define TRACE_DSP_HOST_COMMAND	 (1ll<<35)
-#define TRACE_DSP_HOST_SSI	 (1ll<<36)
-#define TRACE_DSP_DISASM	 (1ll<<37)
-#define TRACE_DSP_DISASM_REG	 (1ll<<38)
-#define TRACE_DSP_DISASM_MEM	 (1ll<<39)
-#define TRACE_DSP_STATE		 (1ll<<40)
-#define TRACE_DSP_INTERRUPT	 (1ll<<41)
+#define TRACE_CROSSBAR		 (1ll<<33)
+#define TRACE_VIDEL		 (1ll<<34)
 
-#define TRACE_DSP_SYMBOLS	 (1ll<<42)
-#define TRACE_CPU_SYMBOLS	 (1ll<<43)
+#define TRACE_DSP_HOST_INTERFACE (1ll<<35)
+#define TRACE_DSP_HOST_COMMAND	 (1ll<<36)
+#define TRACE_DSP_HOST_SSI	 (1ll<<37)
+#define TRACE_DSP_DISASM	 (1ll<<38)
+#define TRACE_DSP_DISASM_REG	 (1ll<<39)
+#define TRACE_DSP_DISASM_MEM	 (1ll<<40)
+#define TRACE_DSP_STATE		 (1ll<<41)
+#define TRACE_DSP_INTERRUPT	 (1ll<<42)
+
+#define TRACE_DSP_SYMBOLS	 (1ll<<43)
+#define TRACE_CPU_SYMBOLS	 (1ll<<44)
+
+#define TRACE_NVRAM		 (1ll<<45)
 
 #define	TRACE_NONE		 (0)
 #define	TRACE_ALL		 (~0)

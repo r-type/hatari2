@@ -1,8 +1,8 @@
 /*
   Hatari - crossbar.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 
 #ifndef HATARI_CROSSBAR_H
@@ -62,7 +62,7 @@ extern void Crossbar_TrackRecSelect_WriteByte(void);
 extern void Crossbar_CodecInput_WriteByte(void);
 extern void Crossbar_AdcInput_WriteByte(void);
 extern void Crossbar_InputAmp_WriteByte(void);
-extern void Crossbar_OutputReduct_WriteByte(void);
+extern void Crossbar_OutputReduct_WriteWord(void);
 extern void Crossbar_CodecStatus_WriteWord(void);
 extern void Crossbar_Microwire_WriteWord(void);
 

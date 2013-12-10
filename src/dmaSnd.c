@@ -1,8 +1,8 @@
 /*
   Hatari - dmaSnd.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   STE DMA sound emulation. Does not seem to be very hard at first glance,
   but since the DMA sound has to be mixed together with the PSG sound and
@@ -107,6 +107,9 @@ const char DmaSnd_fileid[] = "Hatari dmaSnd.c : " __DATE__ " " __TIME__;
 #include "sound.h"
 #include "stMemory.h"
 #include "crossbar.h"
+#include "screen.h"
+#include "video.h"
+#include "m68000.h"
 
 #define TONE_STEPS 13
 
@@ -226,15 +229,6 @@ static void	DmaSnd_StartNewFrame(void);
 static inline int DmaSnd_EndOfFrameReached(void);
 
 
-/*-----------------------------------------------------------------------*/
-/**
- * Init DMA sound variables.
- */
-void DmaSnd_Init(void)
-{
-	DmaSnd_Reset(1);
-}
-
 /**
  * Reset DMA sound variables.
  */
@@ -341,7 +335,7 @@ static void DmaSnd_FIFO_Refill(void)
  * remaining bytes.
  * If the FIFO is empty, return 0 (empty sample)
  * Note : on a real STE, the 8 bytes FIFO is refilled on each HBL, which gives
- * a total of 313*8=125326 bytes per sec read by the DMA. As the max freq
+ * a total of 313*8*VBL_PER_SEC=125326 bytes per sec read by the DMA. As the max freq
  * is 50066 Hz, the STE can play 100132 bytes per sec in stereo ; so on a real STE
  * the FIFO can never be empty while DMA is ON.
  * But on Hatari, if the user chooses an audio's output frequency that is much
@@ -443,7 +437,7 @@ static inline int DmaSnd_EndOfFrameReached(void)
 	LOG_TRACE(TRACE_DMASND, "DMA snd end of frame\n");
 
 	/* Raise end-of-frame interrupts (MFP-i7 and Time-A) */
-	MFP_InputOnChannel(MFP_TIMER_GPIP7_BIT, MFP_IERA, &MFP_IPRA);
+	MFP_InputOnChannel ( MFP_INT_GPIP7 , 0 );
 	if (MFP_TACR == 0x08)       /* Is timer A in Event Count mode? */
 		MFP_TimerA_EventCount_Interrupt();
 
@@ -467,11 +461,14 @@ static inline int DmaSnd_EndOfFrameReached(void)
  * Note: We adjust the volume level of the 8-bit DMA samples to factor
  * 0.75 compared to the PSG sound samples.
  *
- * The following formula: -((256*3/4)/2)/4
+ * The following formula: -((256*3/4)/4)/4
  *
  * Multiply by 256 to convert 8 to 16 bits;
  * DMA sound is 3/4 level of YM sound;
- * Divide by 2 to account for MixBuffer[];
+ * Divide by 4 to account for the STe YM volume table level;
+ * ( STe sound at 1/2 amplitude to avoid overflow. )
+ * ( lmc1992.right_gain and lmc1992.left_gain are  )
+ * ( doubled to compensate. )
  * Divide by 4 to account for DmaSnd_LowPassFilter;
  * Multiply DMA sound by -1 because the LMC1992 inverts the signal
  * ( YM sign is +1 :: -1(op-amp) * -1(Lmc1992) ).
@@ -497,8 +494,8 @@ void DmaSnd_GenerateSamples(int nMixBufIdx, int nSamplesToGenerate)
 			switch (microwire.mixing) {
 				case 1:
 					/* DMA and (YM2149 0 dB) mixing */
-					MixBuffer[nBufIdx][1]  = MixBuffer[nBufIdx][0] + dma.FrameRight * -((256*3/4)/2)/4;	
-					MixBuffer[nBufIdx][0] += dma.FrameLeft * -((256*3/4)/2)/4;	
+					MixBuffer[nBufIdx][1]  = MixBuffer[nBufIdx][0] + dma.FrameRight * -((256*3/4)/4)/4;	
+					MixBuffer[nBufIdx][0] += dma.FrameLeft * -((256*3/4)/4)/4;	
 					break;
 				case 2:
 					/* DMA only (but DMA is off in that case) */
@@ -506,8 +503,8 @@ void DmaSnd_GenerateSamples(int nMixBufIdx, int nSamplesToGenerate)
 				default:
 					/* DMA and (YM2149 -12 dB) mixing */
 					MixBuffer[nBufIdx][0] /= 4;
-					MixBuffer[nBufIdx][1]  = MixBuffer[nBufIdx][0] + dma.FrameRight * -((256*3/4)/2)/4;	
-					MixBuffer[nBufIdx][0] += dma.FrameLeft * -((256*3/4)/2)/4;	
+					MixBuffer[nBufIdx][1]  = MixBuffer[nBufIdx][0] + dma.FrameRight * -((256*3/4)/4)/4;	
+					MixBuffer[nBufIdx][0] += dma.FrameLeft * -((256*3/4)/4)/4;	
 					break;
 			}
 		}
@@ -543,16 +540,16 @@ void DmaSnd_GenerateSamples(int nMixBufIdx, int nSamplesToGenerate)
 			switch (microwire.mixing) {
 				case 1:
 					/* DMA and (YM2149 0 dB) mixing */
-					MixBuffer[nBufIdx][0] = MixBuffer[nBufIdx][0] + dma.FrameLeft * -((256*3/4)/2)/4;
+					MixBuffer[nBufIdx][0] = MixBuffer[nBufIdx][0] + dma.FrameLeft * -((256*3/4)/4)/4;
 					break;
 				case 2:
 					/* DMA only */
-					MixBuffer[nBufIdx][0] = dma.FrameLeft * -((256*3/4)/2)/4;
+					MixBuffer[nBufIdx][0] = dma.FrameLeft * -((256*3/4)/4)/4;
 					break;
 				default:
 					/* DMA and (YM2149 -12 dB) mixing */
 					/* instead of 16462 (-12 dB), we approximate by 16384 */
-					MixBuffer[nBufIdx][0] = (dma.FrameLeft * -((256*3/4)/2)/4) +
+					MixBuffer[nBufIdx][0] = (dma.FrameLeft * -((256*3/4)/4)/4) +
 								(((Sint32)MixBuffer[nBufIdx][0] * 16384)/65536);
 					break;
 			}
@@ -591,20 +588,20 @@ void DmaSnd_GenerateSamples(int nMixBufIdx, int nSamplesToGenerate)
 			switch (microwire.mixing) {
 				case 1:
 					/* DMA and (YM2149 0 dB) mixing */
-					MixBuffer[nBufIdx][0] = MixBuffer[nBufIdx][0] + dma.FrameLeft * -((256*3/4)/2)/4;
-					MixBuffer[nBufIdx][1] = MixBuffer[nBufIdx][1] + dma.FrameRight * -((256*3/4)/2)/4;
+					MixBuffer[nBufIdx][0] = MixBuffer[nBufIdx][0] + dma.FrameLeft * -((256*3/4)/4)/4;
+					MixBuffer[nBufIdx][1] = MixBuffer[nBufIdx][1] + dma.FrameRight * -((256*3/4)/4)/4;
 					break;
 				case 2:
 					/* DMA only */
-					MixBuffer[nBufIdx][0] = dma.FrameLeft * -((256*3/4)/2)/4;
-					MixBuffer[nBufIdx][1] = dma.FrameRight * -((256*3/4)/2)/4;
+					MixBuffer[nBufIdx][0] = dma.FrameLeft * -((256*3/4)/4)/4;
+					MixBuffer[nBufIdx][1] = dma.FrameRight * -((256*3/4)/4)/4;
 					break;
 				default:
 					/* DMA and (YM2149 -12 dB) mixing */
 					/* instead of 16462 (-12 dB), we approximate by 16384 */
-					MixBuffer[nBufIdx][0] = (dma.FrameLeft * -((256*3/4)/2)/4) +
+					MixBuffer[nBufIdx][0] = (dma.FrameLeft * -((256*3/4)/4)/4) +
 								(((Sint32)MixBuffer[nBufIdx][0] * 16384)/65536);
-					MixBuffer[nBufIdx][1] = (dma.FrameRight * -((256*3/4)/2)/4) +
+					MixBuffer[nBufIdx][1] = (dma.FrameRight * -((256*3/4)/4)/4) +
 								(((Sint32)MixBuffer[nBufIdx][1] * 16384)/65536);
 					break;
 			}
@@ -639,12 +636,25 @@ static void DmaSnd_Apply_LMC(int nMixBufIdx, int nSamplesToGenerate)
 {
 	int nBufIdx;
 	int i;
+	Sint32 sample;
 
 	/* Apply LMC1992 sound modifications (Left, Right and Master Volume) */
 	for (i = 0; i < nSamplesToGenerate; i++) {
 		nBufIdx = (nMixBufIdx + i) % MIXBUFFER_SIZE;
-		MixBuffer[nBufIdx][0] = DmaSnd_IIRfilterL( Subsonic_IIR_HPF_Left(MixBuffer[nBufIdx][0]) );
-		MixBuffer[nBufIdx][1] = DmaSnd_IIRfilterR( Subsonic_IIR_HPF_Right(MixBuffer[nBufIdx][1]) );
+
+		sample = DmaSnd_IIRfilterL( Subsonic_IIR_HPF_Left( MixBuffer[nBufIdx][0]));
+		if (sample<-32767)						/* check for overflow to clip waveform */
+			sample = -32767;
+		else if (sample>32767)
+			sample = 32767;
+		MixBuffer[nBufIdx][0] = sample;
+
+		sample = DmaSnd_IIRfilterR( Subsonic_IIR_HPF_Right(MixBuffer[nBufIdx][1]));
+		if (sample<-32767)						/* check for overflow to clip waveform */
+			sample = -32767;
+		else if (sample>32767)
+			sample = 32767;
+		MixBuffer[nBufIdx][1] = sample;
  	}
 }
 
@@ -706,7 +716,14 @@ void DmaSnd_SoundControl_ReadWord(void)
 {
 	IoMem_WriteWord(0xff8900, nDmaSoundControl);
 
-	LOG_TRACE(TRACE_DMASND, "DMA snd control read: 0x%04x\n", nDmaSoundControl);
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("DMA snd control read: 0x%04x video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			nDmaSoundControl,
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 
@@ -718,7 +735,14 @@ void DmaSnd_SoundControl_WriteWord(void)
 {
 	Uint16 nNewSndCtrl;
 
-	LOG_TRACE(TRACE_DMASND, "DMA snd control write: 0x%04x\n", IoMem_ReadWord(0xff8900));
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("DMA snd control write: 0x%04x video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadWord(0xff8900),
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 
         /* Before starting/stopping DMA sound, create samples up until this point with current values */
 	Sound_Update(false);
@@ -777,56 +801,110 @@ void DmaSnd_FrameCountLow_ReadByte(void)
  */
 void DmaSnd_FrameStartHigh_WriteByte(void)
 {
-	LOG_TRACE(TRACE_DMASND, "DMA snd frame start high: 0x%02x at pos %d/%d\n", IoMem_ReadByte(0xff8903) ,
-		dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr );
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("DMA snd frame start high: 0x%02x at pos %d/%d video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadByte(0xff8903) , dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr  ,
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 void DmaSnd_FrameStartMed_WriteByte(void)
 {
-	LOG_TRACE(TRACE_DMASND, "DMA snd frame start med: 0x%02x at pos %d/%d\n", IoMem_ReadByte(0xff8905) ,
-		dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr );
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("DMA snd frame start med: 0x%02x at pos %d/%d video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadByte(0xff8905) , dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr  ,
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 void DmaSnd_FrameStartLow_WriteByte(void)
 {
-	LOG_TRACE(TRACE_DMASND, "DMA snd frame start low: 0x%02x at pos %d/%d\n", IoMem_ReadByte(0xff8907) ,
-		dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr );
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+ 		LOG_TRACE_PRINT("DMA snd frame start low: 0x%02x at pos %d/%d video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadByte(0xff8907) , dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr  ,
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 void DmaSnd_FrameCountHigh_WriteByte(void)
 {
-	LOG_TRACE(TRACE_DMASND, "DMA snd frame count high: 0x%02x at pos %d/%d\n", IoMem_ReadByte(0xff8909) ,
-		dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr );
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+ 		LOG_TRACE_PRINT("DMA snd frame count high: 0x%02x at pos %d/%d video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadByte(0xff8909) , dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr  ,
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 void DmaSnd_FrameCountMed_WriteByte(void)
 {
-	LOG_TRACE(TRACE_DMASND, "DMA snd frame count med: 0x%02x at pos %d/%d\n", IoMem_ReadByte(0xff890b) ,
-		dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr );
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+ 		LOG_TRACE_PRINT("DMA snd frame count med: 0x%02x at pos %d/%d video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadByte(0xff890b) , dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr  ,
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 void DmaSnd_FrameCountLow_WriteByte(void)
 {
-	LOG_TRACE(TRACE_DMASND, "DMA snd frame count low: 0x%02x at pos %d/%d\n", IoMem_ReadByte(0xff890d) ,
-		dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr );
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+ 		LOG_TRACE_PRINT("DMA snd frame count low: 0x%02x at pos %d/%d video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadByte(0xff890d) , dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr  ,
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 void DmaSnd_FrameEndHigh_WriteByte(void)
 {
-	LOG_TRACE(TRACE_DMASND, "DMA snd frame end high: 0x%02x at pos %d/%d\n", IoMem_ReadByte(0xff890f) ,
-		dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr );
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+ 		LOG_TRACE_PRINT("DMA snd frame end high: 0x%02x at pos %d/%d video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadByte(0xff890f) , dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr  ,
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 void DmaSnd_FrameEndMed_WriteByte(void)
 {
-	LOG_TRACE(TRACE_DMASND, "DMA snd frame end med: 0x%02x at pos %d/%d\n", IoMem_ReadByte(0xff8911) ,
-		dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr );
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("DMA snd frame end med: 0x%02x at pos %d/%d video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadByte(0xff8911) , dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr  ,
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 void DmaSnd_FrameEndLow_WriteByte(void)
 {
-	LOG_TRACE(TRACE_DMASND, "DMA snd frame end low: 0x%02x at pos %d/%d\n", IoMem_ReadByte(0xff8913) ,
-		dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr );
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("DMA snd frame end low: 0x%02x at pos %d/%d video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadByte(0xff8913) , dma.frameCounterAddr - dma.frameStartAddr , dma.frameEndAddr - dma.frameStartAddr  ,
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 
@@ -838,7 +916,13 @@ void DmaSnd_SoundModeCtrl_ReadByte(void)
 {
 	IoMem_WriteByte(0xff8921, dma.soundMode);
 
-	LOG_TRACE(TRACE_DMASND, "DMA snd mode read: 0x%02x\n", dma.soundMode);
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("DMA snd mode read: 0x%02x video_cyc=%d %d@%d pc=%x instr_cycle %d\n", dma.soundMode,
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 
@@ -852,8 +936,14 @@ void DmaSnd_SoundModeCtrl_WriteByte(void)
 
 	SoundModeNew = IoMem_ReadByte(0xff8921);
 
-	LOG_TRACE(TRACE_DMASND, "DMA snd mode write: 0x%02x mode=%s freq=%d\n", SoundModeNew,
-		SoundModeNew & DMASNDMODE_MONO ? "mono" : "stereo" , DmaSndSampleRates[ SoundModeNew & 3 ]);
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("DMA snd mode write: 0x%02x mode=%s freq=%d video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			SoundModeNew, SoundModeNew & DMASNDMODE_MONO ? "mono" : "stereo" , DmaSndSampleRates[ SoundModeNew & 3 ],
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 
 	/* We maskout to only bits that exist on a real STE */
 	SoundModeNew &= 0x8f;
@@ -908,7 +998,7 @@ void DmaSnd_InterruptHandler_Microwire(void)
 	/* Is the transfer finished ? */
 	if (microwire.mwTransferSteps > 0)
 	{
-		/* No ==> start a new internal interrupt to continue to tranfer the data */
+		/* No ==> start a new internal interrupt to continue to transfer the data */
 		microwire.pendingCyclesOver = 8 - microwire.pendingCyclesOver;
 		CycInt_AddRelativeInterrupt(microwire.pendingCyclesOver, INT_CPU_CYCLE, INTERRUPT_DMASOUND_MICROWIRE);
 	}
@@ -954,20 +1044,20 @@ void DmaSnd_InterruptHandler_Microwire(void)
 				/* Master volume command */
 				LOG_TRACE ( TRACE_DMASND, "Microwire new master volume=0x%x\n", microwire.data & 0x3f );
 				microwire.masterVolume = LMC1992_Master_Volume_Table[microwire.data & 0x3f];
-				lmc1992.left_gain = (microwire.leftVolume * (Uint32)microwire.masterVolume) * (1.0/(65536.0*65536.0));
-				lmc1992.right_gain = (microwire.rightVolume * (Uint32)microwire.masterVolume) * (1.0/(65536.0*65536.0));
+				lmc1992.left_gain = (microwire.leftVolume * (Uint32)microwire.masterVolume) * (2.0/(65536.0*65536.0));
+				lmc1992.right_gain = (microwire.rightVolume * (Uint32)microwire.masterVolume) * (2.0/(65536.0*65536.0));
 				break;
 			case 4:
 				/* Right channel volume */
 				LOG_TRACE ( TRACE_DMASND, "Microwire new right volume=0x%x\n", microwire.data & 0x1f );
 				microwire.rightVolume = LMC1992_LeftRight_Volume_Table[microwire.data & 0x1f];
-				lmc1992.right_gain = (microwire.rightVolume * (Uint32)microwire.masterVolume) * (1.0/(65536.0*65536.0));
+				lmc1992.right_gain = (microwire.rightVolume * (Uint32)microwire.masterVolume) * (2.0/(65536.0*65536.0));
 				break;
 			case 5:
 				/* Left channel volume */
 				LOG_TRACE ( TRACE_DMASND, "Microwire new left volume=0x%x\n", microwire.data & 0x1f );
 				microwire.leftVolume = LMC1992_LeftRight_Volume_Table[microwire.data & 0x1f];
-				lmc1992.left_gain = (microwire.leftVolume * (Uint32)microwire.masterVolume) * (1.0/(65536.0*65536.0));
+				lmc1992.left_gain = (microwire.leftVolume * (Uint32)microwire.masterVolume) * (2.0/(65536.0*65536.0));
 				break;
 			default:
 				/* Do nothing */
@@ -982,7 +1072,14 @@ void DmaSnd_InterruptHandler_Microwire(void)
 void DmaSnd_MicrowireData_ReadWord(void)
 {
 	/* Shifting is done in DmaSnd_InterruptHandler_Microwire! */
-	LOG_TRACE(TRACE_DMASND, "Microwire data read: 0x%x\n", IoMem_ReadWord(0xff8922));
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("Microwire data read: 0x%x video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadWord(0xff8922),
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 
@@ -1001,7 +1098,14 @@ void DmaSnd_MicrowireData_WriteWord(void)
 		CycInt_AddRelativeInterrupt(microwire.pendingCyclesOver, INT_CPU_CYCLE, INTERRUPT_DMASOUND_MICROWIRE);
 	}
 
-	LOG_TRACE(TRACE_DMASND, "Microwire data write: 0x%x\n", IoMem_ReadWord(0xff8922));
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("Microwire data write: 0x%x video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadWord(0xff8922),
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 
@@ -1011,7 +1115,14 @@ void DmaSnd_MicrowireData_WriteWord(void)
 void DmaSnd_MicrowireMask_ReadWord(void)
 {
 	/* Same as with data register, but mask is rotated, not shifted. */
-	LOG_TRACE(TRACE_DMASND,  "Microwire mask read: 0x%x\n", IoMem_ReadWord(0xff8924));
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("Microwire mask read: 0x%x video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadWord(0xff8924),
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 
@@ -1026,7 +1137,14 @@ void DmaSnd_MicrowireMask_WriteWord(void)
 		microwire.mask = IoMem_ReadWord(0xff8924);
 	}
 
-	LOG_TRACE(TRACE_DMASND, "Microwire mask write: 0x%x\n", IoMem_ReadWord(0xff8924));
+	if(LOG_TRACE_LEVEL(TRACE_DMASND))
+	{
+                int FrameCycles, HblCounterVideo, LineCycles;
+                Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+		LOG_TRACE_PRINT("Microwire mask write: 0x%x video_cyc=%d %d@%d pc=%x instr_cycle %d\n",
+			IoMem_ReadWord(0xff8924),
+			FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC(), CurrentInstrCycles);
+	}
 }
 
 
@@ -1237,8 +1355,8 @@ void DmaSnd_Init_Bass_and_Treble_Tables(void)
 			      LMC1992_Bass_Treble_Table[microwire.treble & 0xf]);
 
 	/* Initialize IIR Filter Gain and use as a Volume Control */
-	lmc1992.left_gain = (microwire.leftVolume * (Uint32)microwire.masterVolume) * (1.0/(65536.0*65536.0));
-	lmc1992.right_gain = (microwire.rightVolume * (Uint32)microwire.masterVolume) * (1.0/(65536.0*65536.0));
+	lmc1992.left_gain = (microwire.leftVolume * (Uint32)microwire.masterVolume) * (2.0/(65536.0*65536.0));
+	lmc1992.right_gain = (microwire.rightVolume * (Uint32)microwire.masterVolume) * (2.0/(65536.0*65536.0));
 
 	/* Anti-alias filter is not required when nAudioFrequency == 50066 Hz */
 	if (nAudioFrequency>50000 && nAudioFrequency<50100)

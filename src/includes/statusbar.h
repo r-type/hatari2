@@ -1,8 +1,8 @@
 /*
   Hatari - statusbar.h
   
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 #ifndef HATARI_STATUSBAR_H
 #define HATARI_STATUSBAR_H
@@ -16,11 +16,19 @@ typedef enum {
 	DRIVE_LED_HD
 } drive_index_t;
 
+typedef enum {
+	LED_STATE_OFF,
+	LED_STATE_ON,
+	LED_STATE_ON_BUSY,
+	MAX_LED_STATE
+} drive_led_t;
+
+
 extern int Statusbar_SetHeight(int ScreenWidth, int ScreenHeight);
 extern int Statusbar_GetHeightForSize(int width, int height);
 extern int Statusbar_GetHeight(void);
-extern void Statusbar_EnableHDLed(void);
-extern void Statusbar_SetFloppyLed(drive_index_t drive, bool state);
+extern void Statusbar_EnableHDLed(drive_led_t state);
+extern void Statusbar_SetFloppyLed(drive_index_t drive, drive_led_t state);
 
 extern void Statusbar_Init(SDL_Surface *screen);
 extern void Statusbar_UpdateInfo(void);

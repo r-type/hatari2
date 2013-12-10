@@ -1,8 +1,8 @@
 /*
   Hatari - options.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Functions for showing and parsing all of Hatari's command line options.
   
@@ -21,12 +21,14 @@ const char Options_fileid[] = "Hatari options.c : " __DATE__ " " __TIME__;
 #include <SDL.h>
 
 #include "main.h"
+#include "version.h"
 #include "options.h"
 #include "configuration.h"
 #include "control.h"
 #include "debugui.h"
 #include "file.h"
 #include "floppy.h"
+#include "fdc.h"
 #include "screen.h"
 #include "sound.h"
 #include "video.h"
@@ -36,14 +38,16 @@ const char Options_fileid[] = "Hatari options.c : " __DATE__ " " __TIME__;
 #include "tos.h"
 #include "paths.h"
 #include "avi_record.h"
-
 #include "hatari-glue.h"
+#include "68kDisass.h"
 
 
 bool bLoadAutoSave;        /* Load autosave memory snapshot at startup */
 bool bLoadMemorySave;      /* Load memory snapshot provided via option at startup */
 bool bBiosIntercept;       /* whether UAE should intercept Bios & XBios calls */
 bool AviRecordOnStartup;   /* Start avi recording at startup */
+
+int ConOutDevice = CONOUT_DEVICE_NONE; /* device number for xconout device to track */
 
 static bool bNoSDLParachute;
 
@@ -95,12 +99,15 @@ enum {
 	OPT_MIDI_OUT,
 	OPT_RS232_IN,
 	OPT_RS232_OUT,
-	OPT_DISKA,		/* disk options */
+	OPT_DRIVEA,		/* disk options */
+	OPT_DRIVEB,
+	OPT_DISKA,
 	OPT_DISKB,
 	OPT_SLOWFLOPPY,
 	OPT_FASTFLOPPY,
 	OPT_WRITEPROT_FLOPPY,
 	OPT_WRITEPROT_HD,
+	OPT_GEMDOS_CASE,
 	OPT_HARDDRIVE,
 	OPT_ACSIHDIMAGE,
 	OPT_IDEMASTERHDIMAGE,
@@ -131,8 +138,14 @@ enum {
 	OPT_SOUNDBUFFERSIZE,
 	OPT_SOUNDSYNC,
 	OPT_YM_MIXING,
-	OPT_DEBUG,		/* debug options */
+#ifdef WIN32
+	OPT_WINCON,		/* debug options */
+#endif
+	OPT_DEBUG,
 	OPT_BIOSINTERCEPT,
+	OPT_CONOUT,
+	OPT_DISASM,
+	OPT_NATFEATS,
 	OPT_TRACE,
 	OPT_TRACEFILE,
 	OPT_PARSE,
@@ -166,7 +179,7 @@ static const opt_t HatariOptions[] = {
 	{ OPT_CONFIRMQUIT, NULL, "--confirm-quit",
 	  "<bool>", "Whether Hatari confirms quit" },
 	{ OPT_CONFIGFILE, "-c", "--configfile",
-	  "<file>", "Use <file> instead of the default hatari config file" },
+	  "<file>", "Read (additional) configuration values from <file>" },
 	{ OPT_KEYMAPFILE, "-k", "--keymap",
 	  "<file>", "Read (additional) keyboard mappings from <file>" },
 	{ OPT_FASTFORWARD, NULL, "--fast-forward",
@@ -268,6 +281,10 @@ static const opt_t HatariOptions[] = {
 	  "<file>", "Enable serial port and use <file> as the output device" },
 	
 	{ OPT_HEADER, NULL, NULL, NULL, "Disk" },
+	{ OPT_DRIVEA, NULL, "--drive-a",
+	  "<bool>", "Enable/disable drive A" },
+	{ OPT_DRIVEB, NULL, "--drive-b",
+	  "<bool>", "Enable/disable drive B" },
 	{ OPT_DISKA, NULL, "--disk-a",
 	  "<file>", "Set disk image for floppy drive A" },
 	{ OPT_DISKB, NULL, "--disk-b",
@@ -280,6 +297,8 @@ static const opt_t HatariOptions[] = {
 	  "<x>", "Write protect floppy image contents (on/off/auto)" },
 	{ OPT_WRITEPROT_HD, NULL, "--protect-hd",
 	  "<x>", "Write protect harddrive <dir> contents (on/off/auto)" },
+	{ OPT_GEMDOS_CASE, NULL, "--gemdos-case",
+	  "<x>", "Forcibly up/lowercase new GEMDOS dir/filenames (off/upper/lower)" },
 	{ OPT_HARDDRIVE, "-d", "--harddrive",
 	  "<dir>", "Emulate harddrive partition(s) with <dir> contents" },
 	{ OPT_ACSIHDIMAGE,   NULL, "--acsi",
@@ -352,10 +371,20 @@ static const opt_t HatariOptions[] = {
 	  "<x>", "YM sound mixing method (x=linear/table/model)" },
 
 	{ OPT_HEADER, NULL, NULL, NULL, "Debug" },
+#ifdef WIN32
+	{ OPT_WINCON, "-W", "--wincon",
+	  NULL, "Open console window (Windows only)" },
+#endif
 	{ OPT_DEBUG,     "-D", "--debug",
 	  NULL, "Toggle whether CPU exceptions invoke debugger" },
 	{ OPT_BIOSINTERCEPT, NULL, "--bios-intercept",
-	  NULL, "Toggle X/Bios interception & CON: redirection" },
+	  NULL, "Toggle X/Bios interception & Hatari XBios 255 support" },
+	{ OPT_CONOUT,   NULL, "--conout",
+	  "<device>", "Show console output (0-7, 2=VT-52 terminal)" },
+	{ OPT_DISASM,   NULL, "--disasm",
+	  "<x>", "Set disassembly options (help/uae/ext/<bitmask>)" },
+	{ OPT_NATFEATS, NULL, "--natfeats",
+	  "<bool>", "Whether Native Features support is enabled" },
 	{ OPT_TRACE,   NULL, "--trace",
 	  "<trace1,...>", "Activate emulation tracing, see '--trace help'" },
 	{ OPT_TRACEFILE, NULL, "--trace-file",
@@ -972,6 +1001,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 			default:
 				return Opt_ShowError(OPT_FORCEBPP, argv[i], "Invalid bit depth");
 			}
+			fprintf(stderr, "Hatari window BPP = %d.\n", planes);
 			ConfigureParams.Screen.nForceBpp = planes;
 			break;
 
@@ -991,6 +1021,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 				return Opt_ShowError(OPT_SPEC512, argv[i],
 						     "Invalid palette writes per line threshold for Spec512");
 			}
+			fprintf(stderr, "Spec512 threshold = %d palette writes per line.\n", threshold);
 			ConfigureParams.Screen.nSpec512Threshold = threshold;
 			break;
 
@@ -1065,6 +1096,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 				return Opt_ShowError(OPT_AVIRECORD_FPS, argv[i],
 							"Invalid frame rate for avi recording");
 			}
+			fprintf(stderr, "AVI recording FPS = %d.\n", val);
 			ConfigureParams.Video.AviRecordFps = val;
 			break;
 
@@ -1190,6 +1222,14 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 			break;
 
 			/* disk options */
+		case OPT_DRIVEA:
+			ok = Opt_Bool(argv[++i], OPT_DRIVEA, &ConfigureParams.DiskImage.EnableDriveA);
+			break;
+
+		case OPT_DRIVEB:
+			ok = Opt_Bool(argv[++i], OPT_DRIVEB, &ConfigureParams.DiskImage.EnableDriveB);
+			break;
+
 		case OPT_DISKA:
 			i += 1;
 			if (Floppy_SetDiskFileName(0, argv[i], NULL))
@@ -1242,14 +1282,32 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 				return Opt_ShowError(OPT_WRITEPROT_HD, argv[i], "Unknown option value");
 			break;
 
+		case OPT_GEMDOS_CASE:
+			i += 1;
+			if (strcasecmp(argv[i], "off") == 0)
+				ConfigureParams.HardDisk.nGemdosCase = GEMDOS_NOP;
+			else if (strcasecmp(argv[i], "upper") == 0)
+				ConfigureParams.HardDisk.nGemdosCase = GEMDOS_UPPER;
+			else if (strcasecmp(argv[i], "lower") == 0)
+				ConfigureParams.HardDisk.nGemdosCase = GEMDOS_LOWER;
+			else
+				return Opt_ShowError(OPT_GEMDOS_CASE, argv[i], "Unknown option value");
+			break;
+
 		case OPT_HARDDRIVE:
 			i += 1;
 			ok = Opt_StrCpy(OPT_HARDDRIVE, false, ConfigureParams.HardDisk.szHardDiskDirectories[0],
 					argv[i], sizeof(ConfigureParams.HardDisk.szHardDiskDirectories[0]),
 					&ConfigureParams.HardDisk.bUseHardDiskDirectories);
-			if (ok && ConfigureParams.HardDisk.bUseHardDiskDirectories)
+			if (ok && ConfigureParams.HardDisk.bUseHardDiskDirectories &&
+			    ConfigureParams.HardDisk.szHardDiskDirectories[0][0])
 			{
 				ConfigureParams.HardDisk.bBootFromHardDisk = true;
+			}
+			else
+			{
+				ConfigureParams.HardDisk.bUseHardDiskDirectories = false;
+				ConfigureParams.HardDisk.bBootFromHardDisk = false;
 			}
 			bLoadAutoSave = false;
 			break;
@@ -1446,9 +1504,13 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 				return Opt_ShowError(OPT_MACHINE, argv[i], "Unknown machine type");
 			}
 #if ENABLE_WINUAE_CPU
-			ConfigureParams.System.bMMU = false;	/* does this affect also other than 040 CPUs? */
-			ConfigureParams.System.bAddressSpace24 = true;
-			if (strcasecmp(argv[i], "tt") == 0)
+			if (ConfigureParams.System.nMachineType == MACHINE_ST ||
+			    ConfigureParams.System.nMachineType == MACHINE_STE)
+			{
+				ConfigureParams.System.bMMU = false;
+				ConfigureParams.System.bAddressSpace24 = true;
+			}
+			if (ConfigureParams.System.nMachineType == MACHINE_TT)
 			{
 				ConfigureParams.System.bCompatibleFPU = true;
 				ConfigureParams.System.n_FPUType = FPU_68882;
@@ -1540,6 +1602,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 				ConfigureParams.Sound.nPlaybackFreq = freq;
 				ConfigureParams.Sound.bEnableSound = true;
 			}
+			fprintf(stderr, "Sound %s, frequency = %d.\n", ConfigureParams.Sound.bEnableSound ? "ON" : "OFF", ConfigureParams.Sound.nPlaybackFreq);
 			break;
 
 		case OPT_SOUNDBUFFERSIZE:
@@ -1551,6 +1614,7 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 				{
 					return Opt_ShowError(OPT_SOUNDBUFFERSIZE, argv[i], "Unsupported sound buffer size");
 				}
+			fprintf(stderr, "SDL sound buffer size = %d ms.\n", temp);
 			ConfigureParams.Sound.SdlAudioBufferSize = temp;
 			break;
 
@@ -1574,6 +1638,11 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 			break;
 			
 			/* debug options */
+#ifdef WIN32
+		case OPT_WINCON:
+			ConfigureParams.Log.bConsoleWindow = true;
+			break;
+#endif
 		case OPT_DEBUG:
 			if (bExceptionDebugging)
 			{
@@ -1600,8 +1669,36 @@ bool Opt_ParseParameters(int argc, const char * const argv[])
 			}
 			break;
 
+		case OPT_CONOUT:
+			i += 1;
+			ConOutDevice = atoi(argv[i]);
+			if (ConOutDevice < 0 || ConOutDevice > 7)
+			{
+				return Opt_ShowError(OPT_CONOUT, argv[i], "Invalid console device vector number");
+			}
+			fprintf(stderr, "Xcounout device %d vector redirection enabled.\n", ConOutDevice);
+			break;
+
+		case OPT_NATFEATS:
+			ok = Opt_Bool(argv[++i], OPT_NATFEATS, &ConfigureParams.Log.bNatFeats);
+			fprintf(stderr, "Native Features %s.\n", ConfigureParams.Log.bNatFeats ? "enabled" : "disabled");
+			break;
+
 		case OPT_PARACHUTE:
 			bNoSDLParachute = true;
+			break;
+
+		case OPT_DISASM:
+			i += 1;
+			errstr = Disasm_ParseOption(argv[i]);
+			if (errstr)
+			{
+				if (!errstr[0]) {
+					/* silent parsing termination */
+					return false;
+				}
+				return Opt_ShowError(OPT_DISASM, argv[i], errstr);
+			}
 			break;
 			
 		case OPT_TRACE:

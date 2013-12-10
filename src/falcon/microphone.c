@@ -2,8 +2,8 @@
   Hatari - microphone.c
   microphone (jack connector) emulation (Falcon mode only)
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   This program uses the PortAudio Portable Audio Library.
   For more information see: http://www.portaudio.com
@@ -140,7 +140,7 @@ bool Microphone_Start(int sampleRate)
  */
 static bool Microphone_Error(void)
 {
-	fprintf (stderr, "An error occured while using the portaudio stream\n");
+	fprintf (stderr, "An error occurred while using the portaudio stream\n");
 	fprintf (stderr, "Error number: %d\n", micro_err);
 	fprintf (stderr, "Error message: %s\n", Pa_GetErrorText (micro_err));
 
@@ -154,7 +154,7 @@ static bool Microphone_Error(void)
  */
 static bool Microphone_Terminate(void)
 {
-	micro_stream = NULL; /* catch erronous use */
+	micro_stream = NULL; /* catch erroneous use */
 
 	micro_err = Pa_Terminate();
 	if (micro_err != paNoError) {

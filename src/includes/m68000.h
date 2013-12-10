@@ -1,8 +1,8 @@
 /*
   Hatari - m68000.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 
 /* 2007/11/10	[NP]	Add pairing for lsr / dbcc (and all variants	*/
@@ -44,7 +44,7 @@ enum {
   REG_A4,
   REG_A5,
   REG_A6,
-  REG_A7,    /* ..A7 (also SP) */
+  REG_A7    /* ..A7 (also SP) */
 };
 
 /* 68000 Condition code's */
@@ -99,6 +99,11 @@ enum {
 #define  SYSINIT_OPCODE      10  /* Free op-code to initialize system (connected drives etc.) */
 #define  VDI_OPCODE          12  /* Free op-code to call VDI handlers AFTER Trap#2 */
 
+/* Illegal opcodes used for Native Features emulation:
+ * http://wiki.aranym.org/natfeats/proposal#special_opcodes
+ */
+#define  NATFEAT_ID_OPCODE   0x7300
+#define  NATFEAT_CALL_OPCODE 0x7301
 
 
 /* Ugly hacks to adapt the main code to the different CPU cores: */
@@ -134,12 +139,38 @@ static inline void M68000_SetSR(Uint16 v)
 #define	BUS_MODE_BLITTER	1			/* bus is owned by the blitter */
 
 
+/* Notes on IACK :
+ * When an interrupt happens, it's possible a similar interrupt happens again
+ * between the start of the exception and the IACK sequence. In that case, we
+ * might have to set pending bit twice and change the interrupt vector.
+ * From the 68000's doc, IACK start after 12 cycles. Then in an Atari STF, it takes
+ * 12 extra cycles to fetch the vector number.
+ * This means we have at max 24 cycles at the start of the exception where some
+ * changes can happen. The values we use were not measured on real hardware, they
+ * were adjusted to get the correct behaviour in some games/demos relying on this.
+ */
+#define CPU_IACK_CYCLES_MFP	12			/* vector sent by the MFP */
+#define CPU_IACK_CYCLES_VIDEO	20			/* auto vectored */
+
+
+/* information about current CPU instruction */
+typedef struct {
+	/* these are provided only by WinUAE CPU core */
+	int iCacheMisses;
+	int iSave_instr_tail;
+
+	/* TODO: move other instruction specific Hatari variables here */
+} cpu_instruction_t;
+
+extern cpu_instruction_t CpuInstruction;
+
 extern Uint32 BusErrorAddress;
 extern Uint32 BusErrorPC;
 extern bool bBusErrorReadWrite;
 extern int nCpuFreqShift;
 extern int nWaitStateCycles;
 extern int BusMode;
+extern bool	CPU_IACK;
 
 extern int	LastOpcodeFamily;
 extern int	LastInstrCycles;
@@ -160,6 +191,7 @@ static inline void M68000_AddCycles(int cycles)
 
 	PendingInterruptCount -= INT_CONVERT_TO_INTERNAL(cycles, INT_CPU_CYCLE);
 	nCyclesMainCounter += cycles;
+	CyclesGlobalClockCounter += cycles;
 }
 
 
@@ -227,7 +259,7 @@ static inline void M68000_AddCyclesWithPairing(int cycles)
 	LastInstrCycles = cycles + BusCyclePenalty;
 	LastOpcodeFamily = OpcodeFamily;
 
-	/* If pairing is true, we need to substract 2 cycles for the	*/
+	/* If pairing is true, we need to subtract 2 cycles for the	*/
 	/* previous instr which was rounded to 4 cycles while it wasn't */
 	/* needed (and we don't round the current one)			*/
 	/* -> both instr will take 4 cycles less on the ST than if ran	*/
@@ -253,6 +285,7 @@ static inline void M68000_AddCyclesWithPairing(int cycles)
 	PendingInterruptCount -= INT_CONVERT_TO_INTERNAL ( cycles , INT_CPU_CYCLE );
 
 	nCyclesMainCounter += cycles;
+	CyclesGlobalClockCounter += cycles;
 	BusCyclePenalty = 0;
 }
 
@@ -265,5 +298,6 @@ extern void M68000_MemorySnapShot_Capture(bool bSave);
 extern void M68000_BusError(Uint32 addr, bool bReadWrite);
 extern void M68000_Exception(Uint32 ExceptionVector , int ExceptionSource);
 extern void M68000_WaitState(int nCycles);
+extern int M68000_WaitEClock ( void );
 
 #endif

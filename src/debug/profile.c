@@ -1,784 +1,488 @@
 /*
  * Hatari - profile.c
  * 
- * Copyright (C) 2010 by Eero Tamminen
+ * Copyright (C) 2010-2013 by Eero Tamminen
  *
- * This file is distributed under the GNU Public License, version 2 or at
- * your option any later version. Read the file gpl.txt for details.
+ * This file is distributed under the GNU General Public License, version 2
+ * or at your option any later version. Read the file gpl.txt for details.
  *
- * profile.c - functions for profiling CPU and DSP and showing the results.
+ * profile.c - profile caller info handling and debugger parsing functions
  */
 const char Profile_fileid[] = "Hatari profile.c : " __DATE__ " " __TIME__;
 
 #include <stdio.h>
+#include <assert.h>
+#include <inttypes.h>
 #include "main.h"
+#include "version.h"
+#include "debugui.h"
 #include "debug_priv.h"
-#include "dsp.h"
-#include "m68000.h"
+#include "configuration.h"
+#include "clocks_timings.h"
+#include "evaluate.h"
 #include "profile.h"
-#include "stMemory.h"
+#include "profile_priv.h"
 #include "symbols.h"
-#include "tos.h"
 
-#define MAX_PROFILE_VALUE 0xFFFFFFFF
-
-typedef struct {
-	Uint32 count;	/* how many times this address is used */
-	Uint32 cycles;	/* what address this is (for sorting) */
-} profile_item_t;
-
-typedef struct {
-	unsigned long long all_cycles, all_count;
-	Uint32 max_cycles, max_cycles_addr;
-	Uint32 max_count, max_count_addr;
-	Uint32 lowest, highest;	/* active address range within memory area */
-	Uint32 active;          /* number of active addresses */
-} profile_area_t;
-
-static struct {
-	unsigned long long all_cycles, all_count;
-	Uint32 size;          /* number of allocated profile data items */
-	profile_item_t *data; /* profile data items */
-	profile_area_t ram;   /* normal RAM stats */
-	profile_area_t rom;   /* cartridge ROM stats */
-	profile_area_t tos;   /* ROM TOS stats */
-	Uint32 active;        /* number of active data items in all areas */
-	Uint32 *sort_arr;     /* data indexes used for sorting */
-	bool enabled;         /* true when profiling enabled */
-} cpu_profile;
+profile_loop_t profile_loop;
 
 
-#define DSP_PROFILE_ARR_SIZE 0x10000
+/* ------------------ CPU/DSP caller information handling ----------------- */
 
-static struct {
-	profile_item_t *data; /* profile data */
-	profile_area_t ram;   /* normal RAM stats */
-	Uint16 *sort_arr;     /* data indexes used for sorting */
-	bool enabled;         /* true when profiling enabled */
-} dsp_profile;
-
-
-/* ------------------ CPU profile results ----------------- */
+static const struct {
+	char chr;
+	calltype_t bit;
+	const char *info;
+} flaginfo[] = {
+	{ 'u', CALL_UNKNOWN,	"unknown PC change" },
+	{ 'n', CALL_NEXT,	"PC moved to next instruction", },
+	{ 'b', CALL_BRANCH,	"branch/jump" },
+	{ 's', CALL_SUBROUTINE,	"subroutine call" },
+	{ 'r', CALL_SUBRETURN,	"return from subroutine" },
+	{ 'e', CALL_EXCEPTION,	"exception" },
+	{ 'x', CALL_EXCRETURN,	"return from exception" }
+};
 
 /**
- * convert Atari memory address to sorting array profile data index.
+ * compare function for qsort() to sort caller data by calls
  */
-static inline Uint32 address2index(Uint32 pc)
+static int cmp_callers(const void *c1, const void *c2)
 {
-	if (unlikely(pc & 1)) {
-		fprintf(stderr, "WARNING: odd CPU profile instruction address 0x%x!\n", pc);
+	Uint32 calls1 = ((const caller_t*)c1)->calls;
+	Uint32 calls2 = ((const caller_t*)c2)->calls;
+	if (calls1 > calls2) {
+		return -1;
 	}
-	if (pc >= TosAddress && pc < TosAddress + TosSize) {
-		/* TOS, put it after RAM & ROM data */
-		pc = pc - TosAddress + STRamEnd + 0x20000;
-	
-	} else if (pc >= 0xFA0000 && pc < 0xFC0000) {
-		/* ROM, put it after RAM data */
-		pc = pc - 0xFA0000 + STRamEnd;
-
-	} else {
-		/* if in RAM, use as-is */
-		if (unlikely(pc >= STRamEnd)) {
-			fprintf(stderr, "WARNING: 'invalid' CPU PC profile instruction address 0x%x, skipping!\n", pc);
-			/* extra entry at end reserved for invalid PC values */
-			pc = STRamEnd + 0x20000 + TosSize;
-		}
+	if (calls1 < calls2) {
+		return 1;
 	}
-	/* CPU instructions are at even addresses, save space by halving */
-	return (pc >> 1);
+	return 0;
 }
 
-
 /**
- * Get CPU cycles & count for given address.
- * Return true if data was available and non-zero, false otherwise.
+ * output caller counter information
  */
-bool Profile_CpuAddressData(Uint32 addr, Uint32 *count, Uint32 *cycles)
+static bool output_counter_info(FILE *fp, counters_t *counter)
 {
-	Uint32 idx;
-	if (!cpu_profile.data) {
+	if (!counter->count) {
 		return false;
 	}
-	idx = address2index(addr);
-	*cycles = cpu_profile.data[idx].cycles;
-	*count = cpu_profile.data[idx].count;
-	return (*count > 0);
-}
-
-
-/**
- * convert sorting array profile data index to Atari memory address.
- */
-static Uint32 index2address(Uint32 idx)
-{
-	idx <<= 1;
-	/* RAM */
-	if (idx < STRamEnd) {
-		return idx;
+	/* number of calls needs to be first and rest must be in the same order as
+	 * they're in the profile disassembly (count of instructions, etc...).
+	 */
+	fprintf(fp, " %"PRIu64"/%"PRIu64"/%"PRIu64"",
+		counter->calls, counter->count, counter->cycles);
+	if (counter->misses) {
+		/* these are only with specific WinUAE CPU core */
+		fprintf(fp, "/%"PRIu64"", counter->misses);
 	}
-	/* ROM */
-	idx -= STRamEnd;
-	if (idx < 0x20000) {
-		return idx + 0xFA0000;
-	}
-	/* TOS */
-	return idx - 0x20000 + TosAddress;
-}
-
-
-/**
- * Helper to show statistics for specified CPU profile area.
- */
-static void show_cpu_area_stats(profile_area_t *area)
-{
-	if (!area->active) {
-		fprintf(stderr, "- no activity\n");
-		return;
-	}
-	fprintf(stderr, "- active address range:\n  0x%06x-0x%06x\n",
-		index2address(area->lowest),
-		index2address(area->highest));
-	fprintf(stderr, "- active instruction addresses:\n  %d (%.2f%% of all)\n",
-		area->active,
-		(float)area->active/cpu_profile.active*100);
-	fprintf(stderr, "- executed instructions:\n  %llu (%.2f%% of all)\n",
-		area->all_count,
-		(float)area->all_count/cpu_profile.all_count*100);
-	fprintf(stderr, "- used cycles:\n  %llu (%.2f%% of all)\n",
-		area->all_cycles,
-		(float)area->all_cycles/cpu_profile.all_cycles*100);
-	fprintf(stderr, "- address with most cycles:\n  0x%06x, %d cycles (%.2f%% of all in area)\n",
-		index2address(area->max_cycles_addr),
-		area->max_cycles,
-		(float)area->max_cycles/area->all_cycles*100);
-	fprintf(stderr, "- address with most hits:\n  0x%06x, %d hits (%.2f%% of all in area)\n",
-		index2address(area->max_count_addr),
-		area->max_count,
-		(float)area->max_count/area->all_count*100);
-	if (area->max_cycles == MAX_PROFILE_VALUE) {
-		fprintf(stderr, "- Counters OVERFLOW!\n");
-	}
-}
-
-
-/**
- * show CPU area (RAM, ROM, TOS) specific statistics.
- */
-void Profile_CpuShowStats(void)
-{
-	fprintf(stderr, "Normal RAM (0-0x%X):\n", STRamEnd);
-	show_cpu_area_stats(&cpu_profile.ram);
-
-	fprintf(stderr, "Cartridge ROM (0xFA0000-0xFC0000):\n");
-	show_cpu_area_stats(&cpu_profile.rom);
-
-	fprintf(stderr, "ROM TOS (0x%X-0x%X):\n", TosAddress, TosAddress+TosSize);
-	show_cpu_area_stats(&cpu_profile.tos);
-}
-
-
-/**
- * compare function for qsort() to sort CPU profile data by descdending
- * address cycles counts.
- */
-static int profile_by_cpu_cycles(const void *p1, const void *p2)
-{
-	Uint32 count1 = cpu_profile.data[*(const Uint32*)p1].cycles;
-	Uint32 count2 = cpu_profile.data[*(const Uint32*)p2].cycles;
-	if (count1 > count2) {
-		return -1;
-	}
-	if (count1 < count2) {
-		return 1;
-	}
-	return 0;
+	return true;
 }
 
 /**
- * Sort CPU profile data addresses by cycle counts and show the results.
+ * output caller call counts, call type(s) and costs
  */
-void Profile_CpuShowCycles(unsigned int show)
+static void output_caller_info(FILE *fp, caller_t *info, Uint32 *typeaddr)
 {
-	unsigned int active;
-	Uint32 *sort_arr, *end, addr;
-	profile_item_t *data = cpu_profile.data;
-	float percentage;
-	Uint32 count;
+	int k, typecount;
 
-	if (!data) {
-		fprintf(stderr, "ERROR: no CPU profiling data available!\n");
-		return;
-	}
-
-	active = cpu_profile.active;
-	sort_arr = cpu_profile.sort_arr;
-	qsort(sort_arr, active, sizeof(*sort_arr), profile_by_cpu_cycles);
-
-	printf("addr:\t\tcycles:\n");
-	show = (show < active ? show : active);
-	for (end = sort_arr + show; sort_arr < end; sort_arr++) {
-		addr = index2address(*sort_arr);
-		count = data[*sort_arr].cycles;
-		percentage = 100.0*count/cpu_profile.all_cycles;
-		printf("0x%06x\t%.2f%%\t%d%s\n", addr, percentage, count,
-		       count == MAX_PROFILE_VALUE ? " (OVERFLOW)" : "");
-	}
-	printf("%d CPU addresses listed.\n", show);
-}
-
-
-/**
- * compare function for qsort() to sort CPU profile data by descdending
- * address access counts.
- */
-static int profile_by_cpu_count(const void *p1, const void *p2)
-{
-	Uint32 count1 = cpu_profile.data[*(const Uint32*)p1].count;
-	Uint32 count2 = cpu_profile.data[*(const Uint32*)p2].count;
-	if (count1 > count2) {
-		return -1;
-	}
-	if (count1 < count2) {
-		return 1;
-	}
-	return 0;
-}
-
-/**
- * Sort CPU profile data addresses by call counts and show the results.
- * If symbols are requested and symbols are loaded, show (only) addresses
- * matching a symbol.
- */
-void Profile_CpuShowCounts(unsigned int show, bool only_symbols)
-{
-	profile_item_t *data = cpu_profile.data;
-	unsigned int symbols, matched, active;
-	Uint32 *sort_arr, *end, addr;
-	const char *name;
-	float percentage;
-	Uint32 count;
-
-	if (!data) {
-		fprintf(stderr, "ERROR: no CPU profiling data available!\n");
-		return;
-	}
-	active = cpu_profile.active;
-	show = (show < active ? show : active);
-
-	sort_arr = cpu_profile.sort_arr;
-	qsort(sort_arr, active, sizeof(*sort_arr), profile_by_cpu_count);
-
-	if (!only_symbols) {
-		printf("addr:\t\tcount:\n");
-		for (end = sort_arr + show; sort_arr < end; sort_arr++) {
-			addr = index2address(*sort_arr);
-			count = data[*sort_arr].count;
-			percentage = 100.0*count/cpu_profile.all_count;
-			printf("0x%06x\t%.2f%%\t%d%s\n",
-			       addr, percentage, count,
-			       count == MAX_PROFILE_VALUE ? " (OVERFLOW)" : "");
+	fprintf(fp, "0x%x = %d", info->addr, info->calls);
+	if (info->flags) {	/* calltypes supported? */
+		fputc(' ', fp);
+		typecount = 0;
+		for (k = 0; k < ARRAYSIZE(flaginfo); k++) {
+			if (info->flags & flaginfo[k].bit) {
+				fputc(flaginfo[k].chr, fp);
+				typecount++;
+			}
 		}
-		printf("%d CPU addresses listed.\n", show);
-		return;
+		if (typecount > 1) {
+			*typeaddr = info->addr;
+		}
 	}
-
-	symbols = Symbols_CpuCount();
-	if (!symbols) {
-		fprintf(stderr, "ERROR: no CPU symbols loaded!\n");
-		return;
+	if (output_counter_info(fp, &(info->all))) {
+		output_counter_info(fp, &(info->own));
+		if (info->calls != info->own.calls) {
+			fprintf(stderr, "WARNING: mismatch between function 0x%x call count %d and own call cost %"PRIu64"!\n",
+			       info->addr, info->calls, info->own.calls);
+		}
 	}
-	matched = 0;	
+	fputs(", ", fp);
+}
 
-	printf("addr:\t\tcount:\t\tsymbol:\n");
-	for (end = sort_arr + active; sort_arr < end; sort_arr++) {
+/*
+ * Show collected CPU/DSP callee/caller information.
+ *
+ * Hint: As caller info list is based on number of loaded symbols,
+ * load only text symbols to save memory & make things faster...
+ */
+void Profile_ShowCallers(FILE *fp, int sites, callee_t *callsite, const char * (*addr2name)(Uint32, Uint64 *))
+{
+	int i, j, countissues, countdiff;
+	const char *name;
+	caller_t *info;
+	Uint64 total;
+	Uint32 addr, typeaddr;
 
-		addr = index2address(*sort_arr);
-		name = Symbols_GetByCpuAddress(addr);
-		if (!name) {
+	/* legend */
+	fputs("# <callee>: <caller1> = <calls> <types>[ <inclusive/totals>[ <exclusive/totals>]], <caller2> ..., <callee name>", fp);
+	fputs("\n# types: ", fp);
+	for (i = 0; i < ARRAYSIZE(flaginfo); i++) {
+		fprintf(fp, "%c = %s, ", flaginfo[i].chr, flaginfo[i].info);
+	}
+	fputs("\n# totals: calls/instructions/cycles/misses\n", fp);
+
+	countdiff = 0;
+	countissues = 0;
+	for (i = 0; i < sites; i++, callsite++) {
+		addr = callsite->addr;
+		if (!addr) {
 			continue;
 		}
-		count = data[*sort_arr].count;
-		percentage = 100.0*count/cpu_profile.all_count;
-		printf("0x%06x\t%.2f%%\t%d\t%s%s\n",
-		       addr, percentage, count, name,
-		       count == MAX_PROFILE_VALUE ? " (OVERFLOW)" : "");
+		name = addr2name(addr, &total);
+		fprintf(fp, "0x%x: ", callsite->addr);
 
-		matched++;
-		if (matched >= show || matched >= symbols) {
-			break;
+		typeaddr = 0;
+		info = callsite->callers;
+		qsort(info, callsite->count, sizeof(*info), cmp_callers);
+		for (j = 0; j < callsite->count; j++, info++) {
+			if (!info->calls) {
+				break;
+			}
+			total -= info->calls;
+			output_caller_info(fp, info, &typeaddr);
+		}
+		if (name) {
+			fprintf(fp, "%s", name);
+		}
+		fputs("\n", fp);
+		if (total) {
+#if DEBUG
+			fprintf(stderr, "WARNING: %llu differences in call and instruction counts for '%s'!\n", total, name);
+#endif
+			countdiff += total;
+			countissues++;
+		}
+		if (typeaddr) {
+			fprintf(stderr, "WARNING: different types of calls (at least) from 0x%x (to 0x%x),\n\t has its codechanged during profiling?\n",
+				typeaddr, callsite->addr);
 		}
 	}
-	printf("%d CPU symbols listed.\n", matched);
+	if (countissues) {
+		if (countdiff <= 2 && countissues == countdiff) {
+			fprintf(stderr, "WARNING: callcount mismatches (%d calls) with address instruction\n\t counts in %d cases, most likely profile start & end.\n",
+				countdiff, countissues);
+		} else {
+			/* profiler bug: some (address?) mismatch in recording instruction counts and call counts */
+			fprintf(stderr, "ERROR: callcount mismatches with address instruction counts\n\t(%d in total) detected in %d cases!\n",
+				countdiff, countissues);
+		}
+	}
 }
 
 
-/* ------------------ CPU profile control ----------------- */
+/**
+ * add second counter values to first counters
+ */
+static void add_counter_costs(counters_t *dst, counters_t *src)
+{
+	dst->calls += src->calls;
+	dst->count += src->count;
+	dst->cycles += src->cycles;
+	dst->misses += src->misses;
+}
 
 /**
- * Initialize CPU profiling when necessary.  Return true if profiling.
+ * set first counter values to their difference from a reference value
  */
-bool Profile_CpuStart(void)
+static void set_counter_diff(counters_t *dst, counters_t *ref)
 {
-	if (cpu_profile.sort_arr) {
-		/* remove previous results */
-		free(cpu_profile.sort_arr);
-		free(cpu_profile.data);
-		cpu_profile.sort_arr = NULL;
-		cpu_profile.data = NULL;
-		printf("Freed previous CPU profile buffers.\n");
-	}
-	if (!cpu_profile.enabled) {
-		return false;
-	}
-	/* Shouldn't change within same debug session */
-	cpu_profile.size = (STRamEnd + 0x20000 + TosSize) / 2;
+	dst->calls = ref->calls - dst->calls;
+	dst->count = ref->count - dst->count;
+	dst->cycles = ref->cycles - dst->cycles;
+	dst->misses = ref->misses - dst->misses;
+}
 
-	/* Add one entry for catching invalid PC values */
-	cpu_profile.data = calloc(cpu_profile.size+1, sizeof(*cpu_profile.data));
-	if (cpu_profile.data) {
-		printf("Allocated CPU profile buffer (%d MB).\n",
-		       (int)sizeof(*cpu_profile.data)*cpu_profile.size/1024/1024);
+/**
+ * add called (callee) function costs to caller information
+ */
+static void add_callee_cost(callee_t *callsite, callstack_t *stack)
+{
+	caller_t *info = callsite->callers;
+	counters_t owncost;
+	int i;
+
+	for (i = 0; i < callsite->count; i++, info++) {
+		if (info->addr == stack->caller_addr) {
+			/* own cost for callee is its child (out) costs
+			 * deducted from full (all) costs
+			 */
+			owncost = stack->out;
+			set_counter_diff(&owncost, &(stack->all));
+			add_counter_costs(&(info->own), &owncost);
+			add_counter_costs(&(info->all), &(stack->all));
+			return;
+		}
+	}
+	/* cost is only added for updated callers,
+	 * so they should always exist
+	 */
+	fprintf(stderr, "ERROR: trying to add costs to non-existing 0x%x caller of 0x%x!\n",
+		stack->caller_addr, callsite->addr);
+	assert(0);
+}
+
+
+static void add_caller(callee_t *callsite, Uint32 pc, Uint32 prev_pc, calltype_t flag)
+{
+	caller_t *info;
+	int i, count;
+
+	/* need to store real call addresses as symbols can change
+	 * after profiling has been stopped
+	 */
+	info = callsite->callers;
+	if (!info) {
+		info = calloc(1, sizeof(*info));
+		if (!info) {
+			fprintf(stderr, "ERROR: caller info alloc failed!\n");
+			return;
+		}
+		/* first call to this address, save address */
+		callsite->addr = pc;
+		callsite->callers = info;
+		callsite->count = 1;
+	}
+	/* how many caller slots are currently allocated? */
+	count = callsite->count;
+	for (;;) {
+		for (i = 0; i < count; i++, info++) {
+			if (info->addr == prev_pc) {
+				info->flags |= flag;
+				info->calls++;
+				return;
+			}
+			if (!info->addr) {
+				/* empty slot */
+				info->addr = prev_pc;
+				info->flags |= flag;
+				info->calls = 1;
+				return;
+			}
+		}
+		/* not enough, double caller slots */
+		count *= 2;
+		info = realloc(callsite->callers, count * sizeof(*info));
+		if (!info) {
+			fprintf(stderr, "ERROR: caller info alloc failed!\n");
+			return;
+		}
+		memset(info + callsite->count, 0, callsite->count * sizeof(*info));
+		callsite->callers = info;
+		callsite->count = count;
+	}
+}
+
+/**
+ * Add information about called symbol, and if it was subroutine
+ * call, add it to stack of functions which total costs are tracked.
+ * callinfo.return_pc needs to be set before invoking this if the call
+ * is of type CALL_SUBROUTINE.
+ */
+void Profile_CallStart(int idx, callinfo_t *callinfo, Uint32 prev_pc, calltype_t flag, Uint32 pc, counters_t *totalcost)
+{
+	callstack_t *stack;
+	int count;
+
+	if (unlikely(idx >= callinfo->sites)) {
+		fprintf(stderr, "ERROR: number of symbols increased during profiling (%d > %d)!\n", idx, callinfo->sites);
+		return;
+	}
+
+	add_caller(callinfo->site + idx, pc, prev_pc, flag);
+
+	/* subroutine call which will return? */
+	if (flag != CALL_SUBROUTINE) {
+		/* no, some other call type */
+		return;
+	}
+	/* yes, add it to call stack */
+
+	if (unlikely(!callinfo->count)) {
+		/* initial stack alloc, can be a bit larger */
+		count = 8;
+		stack = calloc(count, sizeof(*stack));
+		if (!stack) {
+			fputs("ERROR: callstack alloc failed!\n", stderr);
+			return;
+		}
+		callinfo->stack = stack;
+		callinfo->count = count;
+
+	} else if (unlikely(callinfo->depth+1 >= callinfo->count)) {
+		/* need to alloc more stack space for new call? */
+		count = callinfo->count * 2;
+		stack = realloc(callinfo->stack, count * sizeof(*stack));
+		if (!stack) {
+			fputs("ERROR: callstack alloc failed!\n", stderr);
+			return;
+		}
+		memset(stack + callinfo->count, 0, callinfo->count * sizeof(*stack));
+		callinfo->stack = stack;
+		callinfo->count = count;
+	}
+
+	/* only first instruction can be undefined */
+	assert(callinfo->return_pc != PC_UNDEFINED || !callinfo->depth);
+
+	/* called function */
+	stack = &(callinfo->stack[callinfo->depth++]);
+
+	/* store current running totals & zero subcall costs */
+	stack->all = *totalcost;
+	memset(&(stack->out), 0, sizeof(stack->out));
+
+	/* set subroutine call information */
+	stack->ret_addr = callinfo->return_pc;
+	stack->callee_idx = idx;
+	stack->caller_addr = prev_pc;
+	stack->callee_addr = pc;
+
+	/* record call to this into costs... */
+	totalcost->calls++;
+}
+
+/**
+ * If it really was subcall (function) return, store returned function
+ * costs and update callinfo->return_pc value.  Return address of
+ * the instruction which did the returned call.
+ */
+Uint32 Profile_CallEnd(callinfo_t *callinfo, counters_t *totalcost)
+{
+	callstack_t *stack;
+
+	assert(callinfo->depth);
+
+	/* remove call info from stack */
+	callinfo->depth--;
+
+	/* callinfo->depth points now to to-be removed item */
+	stack = &(callinfo->stack[callinfo->depth]);
+
+	if (unlikely(stack->caller_addr == PC_UNDEFINED)) {
+		/* return address can be undefined only for
+		 * first profiled instruction, i.e. only for
+		 * function at top of stack
+		 */
+		assert(!callinfo->depth);
 	} else {
-		perror("ERROR, new CPU profile buffer alloc failed");
-		cpu_profile.enabled = false;
-	}
-	return cpu_profile.enabled;
-}
-
-
-/**
- * Update CPU cycle and count statistics for PC address.
- */
-void Profile_CpuUpdate(void)
-{
-	Uint32 idx, cycles;
-	idx = address2index(M68000_GetPC());
-	assert(idx < cpu_profile.size);
-
-	if (likely(cpu_profile.data[idx].count < MAX_PROFILE_VALUE)) {
-		cpu_profile.data[idx].count++;
-	}
-	cycles = CurrentInstrCycles + nWaitStateCycles;
-	if (likely(cpu_profile.data[idx].cycles < MAX_PROFILE_VALUE - cycles)) {
-			cpu_profile.data[idx].cycles += cycles;
-	}
-}
-
-
-/**
- * Helper for collecting profile area statistics.
- */
-static void update_area(Uint32 i, profile_item_t *item, profile_area_t *area)
-{
-	Uint32 cycles, count = item->count;
-	if (!count) {
-		return;
+		/* full cost is original global cost (in ->all)
+		 * deducted from current global (total) cost
+		 */
+		set_counter_diff(&(stack->all), totalcost);
+		add_callee_cost(callinfo->site + stack->callee_idx, stack);
 	}
 
-	area->all_count += count;
-	if (count > area->max_count) {
-		area->max_count = count;
-		area->max_count_addr = i;
-	}
-
-	cycles = item->cycles;
-	area->all_cycles += cycles;
-	if (cycles > area->max_cycles) {
-		area->max_cycles = cycles;
-		area->max_cycles_addr = i;
-	}
-
-	if (i < area->lowest) {
-		area->lowest = i;
-	}
-	area->highest = i;
-
-	area->active++;
-}
-
-
-/**
- * Stop and process the CPU profiling data; collect stats and
- * prepare for more optimal sorting.
- */
-void Profile_CpuStop(void)
-{
-	profile_item_t *item;
-	profile_area_t *area;
-	Uint32 *sort_arr;
-	Uint32 i, active;
-
-	if (!cpu_profile.enabled) {
-		return;
-	}
-	/* user didn't change RAM or TOS size in the meanwhile? */
-	assert(cpu_profile.size == (STRamEnd + 0x20000 + TosSize) / 2);
-
-	/* find lowest and highest addresses executed... */
-	item = cpu_profile.data;
-
-	/* ...for normal RAM */
-	area = &cpu_profile.ram;
-	memset(area, 0, sizeof(profile_area_t));
-	area->lowest = cpu_profile.size;
-
-	for (i = 0; i < STRamEnd/2; i++, item++) {
-		update_area(i, item, area);
-	}
-
-	/* ... for Cartridge ROM */
-	area = &cpu_profile.rom;
-	memset(area, 0, sizeof(profile_area_t));
-	area->lowest = cpu_profile.size;
-
-	for (; i < (STRamEnd + 0x20000)/2; i++, item++) {
-		update_area(i, item, area);
-	}
-
-	/* ...for ROM TOS */
-	area = &cpu_profile.tos;
-	memset(area, 0, sizeof(profile_area_t));
-	area->lowest = cpu_profile.size;
-
-	for (; i < cpu_profile.size; i++, item++) {
-		update_area(i, item, area);
-	}
-
-	cpu_profile.all_cycles = cpu_profile.ram.all_cycles + cpu_profile.rom.all_cycles + cpu_profile.tos.all_cycles;
-	cpu_profile.all_count = cpu_profile.ram.all_count + cpu_profile.rom.all_count + cpu_profile.tos.all_count;
-
-	/* allocate address array for sorting */
-	active = cpu_profile.ram.active + cpu_profile.rom.active + cpu_profile.tos.active;
-	sort_arr = calloc(active, sizeof(*sort_arr));
-
-	if (!sort_arr) {
-		perror("ERROR: allocating CPU profile address data");
-		free(cpu_profile.data);
-		cpu_profile.data = NULL;
-		return;
-	}
-	printf("Allocated CPU profile address buffer (%d KB).\n",
-	       (int)sizeof(*sort_arr)*(active+512)/1024);
-	cpu_profile.sort_arr = sort_arr;
-	cpu_profile.active = active;
-
-	/* and fill addresses for used instructions... */
-	
-	/* ...for normal RAM */
-	area = &cpu_profile.ram;
-	item = cpu_profile.data + area->lowest;
-	for (i = area->lowest; i <= area->highest; i++, item++) {
-		if (item->count) {
-			*sort_arr++ = i;
-		}
-	}
-
-	/* ...for Cartridge ROM */
-	area = &cpu_profile.rom;
-	item = cpu_profile.data + area->lowest;
-	for (i = area->lowest; i <= area->highest; i++, item++) {
-		if (item->count) {
-			*sort_arr++ = i;
-		}
-	}
-
-	/* ...for TOS ROM */
-	area = &cpu_profile.tos;
-	item = cpu_profile.data + area->lowest;
-	for (i = area->lowest; i <= area->highest; i++, item++) {
-		if (item->count) {
-			*sort_arr++ = i;
-		}
-	}
-	//printf("%d/%d/%d\n", area->active, sort_arr-cpu_profile.sort_arr, active);
-
-	Profile_CpuShowStats();
-	return;
-}
-
-
-/* ------------------ DSP profile results ----------------- */
-
-/**
- * Get DSP cycles & count for given address.
- * Return true if data was available and non-zero, false otherwise.
- */
-bool Profile_DspAddressData(Uint16 addr, Uint32 *count, Uint32 *cycles)
-{
-	if (!dsp_profile.data) {
-		return false;
-	}
-	*cycles = dsp_profile.data[addr].cycles;
-	*count = dsp_profile.data[addr].count;
-	return (*count > 0);
-}
-
-/**
- * show DSP specific profile statistics.
- */
-void Profile_DspShowStats(void)
-{
-	profile_area_t *area = &dsp_profile.ram;
-	fprintf(stderr, "DSP profile statistics (0x0-0xFFFF):\n");
-	if (!area->active) {
-		fprintf(stderr, "- no activity\n");
-		return;
-	}
-	fprintf(stderr, "- active address range:\n  0x%04x-0x%04x\n",
-		area->lowest, area->highest);
-	fprintf(stderr, "- active instruction addresses:\n  %d\n",
-		area->active);
-	fprintf(stderr, "- executed instructions:\n  %llu\n",
-		area->all_count);
-	fprintf(stderr, "- used cycles:\n  %llu\n",
-		area->all_cycles);
-	fprintf(stderr, "- address with most cycles:\n  0x%04x, %d cycles (%.2f%% of all)\n",
-		area->max_cycles_addr,
-		area->max_cycles,
-		(float)area->max_cycles/area->all_cycles*100);
-	fprintf(stderr, "- address with most hits:\n  0x%04x, %d hits (%.2f%% of all)\n",
-		area->max_count_addr,
-		area->max_count,
-		(float)area->max_count/area->all_count*100);
-	if (area->max_cycles == MAX_PROFILE_VALUE) {
-		fprintf(stderr, "- Counters OVERFLOW!\n");
-	}
-}
-
-
-/**
- * compare function for qsort() to sort DSP profile data by descdending
- * address cycles counts.
- */
-static int profile_by_dsp_cycles(const void *p1, const void *p2)
-{
-	Uint32 count1 = dsp_profile.data[*(const Uint16*)p1].cycles;
-	Uint32 count2 = dsp_profile.data[*(const Uint16*)p2].cycles;
-	if (count1 > count2) {
-		return -1;
-	}
-	if (count1 < count2) {
-		return 1;
-	}
-	return 0;
-}
-
-/**
- * Sort DSP profile data addresses by cycle counts and show the results.
- */
-void Profile_DspShowCycles(unsigned int show)
-{
-	unsigned int active;
-	Uint16 *sort_arr, *end, addr;
-	profile_item_t *data = dsp_profile.data;
-	float percentage;
-	Uint32 count;
-
-	if (!data) {
-		fprintf(stderr, "ERROR: no DSP profiling data available!\n");
-		return;
-	}
-
-	active = dsp_profile.ram.active;
-	sort_arr = dsp_profile.sort_arr;
-	qsort(sort_arr, active, sizeof(*sort_arr), profile_by_dsp_cycles);
-
-	printf("addr:\tcycles:\n");
-	show = (show < active ? show : active);
-	for (end = sort_arr + show; sort_arr < end; sort_arr++) {
-		addr = *sort_arr;
-		count = data[addr].cycles;
-		percentage = 100.0*count/dsp_profile.ram.all_cycles;
-		printf("0x%04x\t%.2f%%\t%d%s\n", addr, percentage, count,
-		       count == MAX_PROFILE_VALUE ? " (OVERFLOW)" : "");
-	}
-	printf("%d DSP addresses listed.\n", show);
-}
-
-
-/**
- * compare function for qsort() to sort DSP profile data by descdending
- * address access counts.
- */
-static int profile_by_dsp_count(const void *p1, const void *p2)
-{
-	Uint32 count1 = dsp_profile.data[*(const Uint16*)p1].count;
-	Uint32 count2 = dsp_profile.data[*(const Uint16*)p2].count;
-	if (count1 > count2) {
-		return -1;
-	}
-	if (count1 < count2) {
-		return 1;
-	}
-	return 0;
-}
-
-/**
- * Sort DSP profile data addresses by call counts and show the results.
- * If symbols are requested and symbols are loaded, show (only) addresses
- * matching a symbol.
- */
-void Profile_DspShowCounts(unsigned int show, bool only_symbols)
-{
-	profile_item_t *data = dsp_profile.data;
-	unsigned int symbols, matched, active;
-	Uint16 *sort_arr, *end, addr;
-	const char *name;
-	float percentage;
-	Uint32 count;
-
-	if (!data) {
-		fprintf(stderr, "ERROR: no DSP profiling data available!\n");
-		return;
-	}
-	active = dsp_profile.ram.active;
-	show = (show < active ? show : active);
-
-	sort_arr = dsp_profile.sort_arr;
-	qsort(sort_arr, active, sizeof(*sort_arr), profile_by_dsp_count);
-
-	if (!only_symbols) {
-		printf("addr:\tcount:\n");
-		for (end = sort_arr + show; sort_arr < end; sort_arr++) {
-			addr = *sort_arr;
-			count = data[addr].count;
-			percentage = 100.0*count/dsp_profile.ram.all_count;
-			printf("0x%04x\t%.2f%%\t%d%s\n",
-			       addr, percentage, count,
-			       count == MAX_PROFILE_VALUE ? " (OVERFLOW)" : "");
-		}
-		printf("%d DSP addresses listed.\n", show);
-		return;
-	}
-
-	symbols = Symbols_DspCount();
-	if (!symbols) {
-		fprintf(stderr, "ERROR: no DSP symbols loaded!\n");
-		return;
-	}
-	matched = 0;	
-
-	printf("addr:\tcount:\t\tsymbol:\n");
-	for (end = sort_arr + active; sort_arr < end; sort_arr++) {
-
-		addr = *sort_arr;
-		name = Symbols_GetByDspAddress(addr);
-		if (!name) {
-			continue;
-		}
-		count = data[addr].count;
-		percentage = 100.0*count/dsp_profile.ram.all_count;
-		printf("0x%04x\t%.2f%%\t%d\t%s%s\n",
-		       addr, percentage, count, name,
-		       count == MAX_PROFILE_VALUE ? " (OVERFLOW)" : "");
-
-		matched++;
-		if (matched >= show || matched >= symbols) {
-			break;
-		}
-	}
-	printf("%d DSP symbols listed.\n", matched);
-}
-
-
-/* ------------------ DSP profile control ----------------- */
-
-/**
- * Initialize DSP profiling when necessary.  Return true if profiling.
- */
-bool Profile_DspStart(void)
-{
-	if (dsp_profile.sort_arr) {
-		/* remove previous results */
-		free(dsp_profile.sort_arr);
-		free(dsp_profile.data);
-		dsp_profile.sort_arr = NULL;
-		dsp_profile.data = NULL;
-		printf("Freed previous DSP profile buffers.\n");
-	}
-	if (!dsp_profile.enabled) {
-		return false;
-	}
-
-	dsp_profile.data = calloc(DSP_PROFILE_ARR_SIZE, sizeof(*dsp_profile.data));
-	if (dsp_profile.data) {
-		printf("Allocated DSP profile buffer (%d KB).\n",
-		       (int)sizeof(*dsp_profile.data)*DSP_PROFILE_ARR_SIZE/1024);
+	/* if current function had a parent:
+	 * - start tracking that
+	 * - add full cost of current function to parent's outside costs
+	 */
+	if (callinfo->depth) {
+		callstack_t *parent = stack - 1;
+		callinfo->return_pc = parent->ret_addr;
+		add_counter_costs(&(parent->out), &(stack->all));
 	} else {
-		perror("ERROR, new DSP profile buffer alloc failed");
-		dsp_profile.enabled = false;
+		callinfo->return_pc = PC_UNDEFINED;
 	}
-	return dsp_profile.enabled;
+
+	/* where the returned function was called from */
+	return stack->caller_addr;
 }
 
 /**
- * Update DSP cycle and count statistics for PC address.
+ * Add costs to all functions still in call stack
  */
-void Profile_DspUpdate(void)
+void Profile_FinalizeCalls(callinfo_t *callinfo, counters_t *totalcost, const char* (*get_symbol)(Uint32 addr))
 {
-	Uint16 pc, cycles;
-
-	pc = DSP_GetPC();
-	if (likely(dsp_profile.data[pc].count < MAX_PROFILE_VALUE)) {
-		dsp_profile.data[pc].count++;
+	Uint32 addr;
+	if (!callinfo->depth) {
+		return;
 	}
-
-	cycles = DSP_GetInstrCycles();
-	if (likely(dsp_profile.data[pc].cycles < MAX_PROFILE_VALUE - cycles)) {
-		dsp_profile.data[pc].cycles += cycles;
+	fprintf(stderr, "Finalizing costs for %d non-returned functions:\n", callinfo->depth);
+	while (callinfo->depth > 0) {
+		Profile_CallEnd(callinfo, totalcost);
+		addr = callinfo->stack[callinfo->depth].callee_addr;
+		fprintf(stderr, "- 0x%x: %s (return = 0x%x)\n", addr, get_symbol(addr),
+			callinfo->stack[callinfo->depth].ret_addr);
 	}
 }
 
+/**
+ * Show current profile stack
+ */
+static void Profile_ShowStack(bool forDsp)
+{
+	int i;
+	Uint32 addr;
+	callinfo_t *callinfo;
+	const char* (*get_symbol)(Uint32 addr);
+
+	if (forDsp) {
+		Profile_DspGetCallinfo(&callinfo, &get_symbol);
+	} else {
+		Profile_CpuGetCallinfo(&callinfo, &get_symbol);
+	}
+	if (!callinfo->depth) {
+		fprintf(stderr, "Empty stack.\n");
+		return;
+	}
+
+	for (i = 0; i < callinfo->depth; i++) {
+		addr = callinfo->stack[i].callee_addr;
+		fprintf(stderr, "- 0x%x: %s (return = 0x%x)\n", addr,
+			get_symbol(addr), callinfo->stack[i].ret_addr);
+	}
+}
 
 /**
- * Stop and process the DSP profiling data; collect stats and
- * prepare for more optimal sorting.
+ * Allocate & set initial callinfo structure information
  */
-void Profile_DspStop(void)
+int Profile_AllocCallinfo(callinfo_t *callinfo, int count, const char *name)
 {
-	profile_item_t *item;
-	profile_area_t *area;
-	Uint16 *sort_arr;
-	Uint32 i;
-
-	if (!dsp_profile.enabled) {
-		return;
-	}
-	/* find lowest and highest  addresses executed */
-	item = dsp_profile.data;
-	area = &dsp_profile.ram;
-	memset(area, 0, sizeof(profile_area_t));
-	area->lowest = DSP_PROFILE_ARR_SIZE;
-
-	for (i = 0; i < DSP_PROFILE_ARR_SIZE; i++, item++) {
-		update_area(i, item, area);
-	}
-
-	/* allocate address array for sorting */
-	sort_arr = calloc(dsp_profile.ram.active, sizeof(*sort_arr));
-
-	if (!sort_arr) {
-		perror("ERROR: allocating DSP profile address data");
-		free(dsp_profile.data);
-		dsp_profile.data = NULL;
-		return;
-	}
-	printf("Allocated DSP profile address buffer (%d KB).\n",
-	       (int)sizeof(*sort_arr)*(dsp_profile.ram.active+512)/1024);
-	dsp_profile.sort_arr = sort_arr;
-
-	/* ...and fill addresses for used instructions... */
-	area = &dsp_profile.ram;
-	item = dsp_profile.data + area->lowest;
-	for (i = area->lowest; i <= area->highest; i++, item++) {
-		if (item->count) {
-			*sort_arr++ = i;
+	callinfo->sites = count;
+	if (count) {
+		/* alloc & clear new data */
+		callinfo->site = calloc(count, sizeof(callee_t));
+		if (callinfo->site) {
+			printf("Allocated %s profile callsite buffer for %d symbols.\n", name, count);
+			callinfo->prev_pc = callinfo->return_pc = PC_UNDEFINED;
+		} else {
+			fprintf(stderr, "ERROR: callesite buffer alloc failed!\n");
+			callinfo->sites = 0;
 		}
 	}
-	//printf("%d/%d/%d\n", area->active, sort_arr-dsp_profile.sort_arr, active);
+	return callinfo->sites;
+}
 
-	Profile_DspShowStats();
-	return;
+/**
+ * Free all callinfo structure information
+ */
+void Profile_FreeCallinfo(callinfo_t *callinfo)
+{
+	int i;
+	if (callinfo->sites) {
+		callee_t *site = callinfo->site;
+		for (i = 0; i < callinfo->sites; i++, site++) {
+			if (site->callers) {
+				free(site->callers);
+			}
+		}
+		free(callinfo->site);
+		if (callinfo->stack) {
+			free(callinfo->stack);
+		}
+		memset(callinfo, 0, sizeof(*callinfo));
+	}
 }
 
 
@@ -792,71 +496,204 @@ void Profile_DspStop(void)
 char *Profile_Match(const char *text, int state)
 {
 	static const char *names[] = {
-		"on", "off", "counts", "cycles", "symbols", "stats"
+		"addresses", "callers", "counts", "cycles", "loops", "misses",
+		"off", "on", "save", "stack", "stats", "symbols"
 	};
-	static int i, len;
-	
-	if (!state)
-	{
-		/* first match */
-		i = 0;
-		len = strlen(text);
-	}
-	/* next match */
-	while (i < ARRAYSIZE(names)) {
-		if (strncasecmp(names[i++], text, len) == 0)
-			return (strdup(names[i-1]));
-	}
-	return NULL;
+	return DebugUI_MatchHelper(names, ARRAYSIZE(names), text, state);
 }
 
 const char Profile_Description[] =
-	  "<on|off|counts|cycles|symbols|stats> [show count]\n"
-	  "\ton & off enable and disable profiling.  Data is collected\n"
-	  "\tuntil debugger is entered again after which you can view\n"
-	  "\tstatistics about the data or view PC addresses that took\n"
-	  "\tmost cycles or functions/symbols called most often.\n"
-	  "\tYou can specify how many items are shown at most.";
+	"<subcommand> [parameter]\n"
+	"\n"
+	"\tSubcommands:\n"
+	"\t- on\n"
+	"\t- off\n"
+	"\t- counts [count]\n"
+	"\t- cycles [count]\n"
+	"\t- misses [count]\n"
+	"\t- symbols [count]\n"
+	"\t- addresses [address]\n"
+	"\t- callers\n"
+	"\t- stack\n"
+	"\t- stats\n"
+	"\t- save <file>\n"
+	"\t- loops <file> [CPU limit] [DSP limit]\n"
+	"\n"
+	"\t'on' & 'off' enable and disable profiling.  Data is collected\n"
+	"\tuntil debugger is entered again at which point you get profiling\n"
+	"\tstatistics ('stats') summary.\n"
+	"\n"
+	"\tThen you can ask for list of the PC addresses, sorted either by\n"
+	"\texecution 'counts', used 'cycles' or cache 'misses'. First can\n"
+	"\tbe limited just to named addresses with 'symbols'.  Optional\n"
+	"\tcount will limit how many items will be shown.\n"
+	"\n"
+	"\t'addresses' lists the profiled addresses in order, with the\n"
+	"\tinstructions (currently) residing at them.  By default this\n"
+	"\tstarts from the first executed instruction, or you can\n"
+	"\tspecify the starting address.\n"
+	"\n"
+	"\t'callers' shows (raw) caller information for addresses which\n"
+	"\thad symbol(s) associated with them.  'stack' shows the currect\n"
+	"\tprofile stack, this is useful only with :noinit breakpoints.\n"
+	"\n"
+	"\tProfile address and callers information can be saved with 'save'\n"
+	"\tcommand.  Detailed (spin) looping information can be collected\n"
+	"\tby specifying towhich file it should be saved, with optional\n"
+	"\tlimit(s) on how many bytes the loop first and last instruction\n"
+	"\taddress can differ (0 = no limit).";
 
 
 /**
- * Command: CPU/DSP profiling enabling, exec stats, cycle and call stats.
- * Return for succesful command and false for incorrect ones.
+ * Save profiling information for CPU or DSP.
  */
-bool Profile_Command(int nArgc, char *psArgs[], bool bForDsp)
+static bool Profile_Save(const char *fname, bool bForDsp)
+{
+	FILE *out;
+	Uint32 freq;
+	const char *proc, *core;
+	if (!(out = fopen(fname, "w"))) {
+		fprintf(stderr, "ERROR: opening '%s' for writing failed!\n", fname);
+		perror(NULL);
+		return false;
+	}
+	if (bForDsp) {
+		freq = MachineClocks.DSP_Freq;
+		proc = "DSP";
+	} else {
+		freq = MachineClocks.CPU_Freq;
+		proc = "CPU";
+	}
+#if ENABLE_WINUAE_CPU
+	core = "WinUAE";
+#else
+	core = "OldUAE";
+#endif
+	fprintf(out, "Hatari %s profile (%s, %s CPU core)\n", proc, PROG_NAME, core);
+	fprintf(out, "Cycles/second:\t%u\n", freq);
+	if (bForDsp) {
+		Profile_DspSave(out);
+	} else {
+		Profile_CpuSave(out);
+	}
+	fclose(out);
+	return true;
+}
+
+/**
+ * function CPU & DSP profiling functionality can call to
+ * reset loop information log by truncating it.  Only portable
+ * way to do that is re-opening it again.
+ */
+bool Profile_LoopReset(void)
+{
+	if (!profile_loop.filename) {
+		return false;
+	}
+	if (profile_loop.fp) {
+		fclose(profile_loop.fp);
+	}
+	profile_loop.fp = fopen(profile_loop.filename, "w");
+	if (!profile_loop.fp) {
+		return false;
+	}
+	fprintf(profile_loop.fp, "# <processor> <VBLs from boot> <address> <size> <loops>\n");
+	return true;
+}
+
+/**
+ * Open file common to both CPU and DSP profiling.
+ */
+static bool Profile_Loops(int nArgc, char *psArgs[])
+{
+	if (nArgc > 2) {
+		/* check that the given file can be opened for writing */
+		if (profile_loop.filename) {
+			free(profile_loop.filename);
+		}
+		profile_loop.filename = strdup(psArgs[2]);
+		if (Profile_LoopReset()) {
+			if (nArgc > 3) {
+				profile_loop.cpu_limit = atoi(psArgs[3]);
+				if (nArgc > 4) {
+					profile_loop.dsp_limit = atoi(psArgs[4]);
+				}
+			}
+			fprintf(stderr, "Additional max %d (CPU) & %d (DSP) byte loop profiling enabled to:\n\t%s\n",
+				profile_loop.cpu_limit, profile_loop.cpu_limit, psArgs[2]);
+		} else {
+			free(profile_loop.filename);
+			profile_loop.filename = NULL;
+			perror("ERROR: opening profile loop output file failed, disabling!");
+			return false;
+		}
+	} else {
+		if (profile_loop.fp) {
+			fprintf(stderr, "Disabling loop profiling.\n");
+			free(profile_loop.filename);
+			profile_loop.filename = NULL;
+			fclose(profile_loop.fp);
+			profile_loop.fp = NULL;
+		}
+	}
+	return true;
+}
+
+/**
+ * Command: CPU/DSP profiling enabling, exec stats, cycle and call stats.
+ * Returns DEBUGGER_CMDDONE or DEBUGGER_CMDCONT.
+ */
+int Profile_Command(int nArgc, char *psArgs[], bool bForDsp)
 {
 	static int show = 16;
+	Uint32 *disasm_addr;
 	bool *enabled;
-	
-	if (nArgc < 2) {
-		DebugUI_PrintCmdHelp(psArgs[0]);
-		return true;
-	}
+
 	if (nArgc > 2) {
 		show = atoi(psArgs[2]);
 	}
-	
 	if (bForDsp) {
-		enabled = &dsp_profile.enabled;
+		Profile_DspGetPointers(&enabled, &disasm_addr);
 	} else {
-		enabled = &cpu_profile.enabled;
+		Profile_CpuGetPointers(&enabled, &disasm_addr);
 	}
-	if (strcmp(psArgs[1], "on") == 0) {
+
+	/* continue or explicit addresses command? */
+	if (nArgc < 2 || strcmp(psArgs[1], "addresses") == 0) {
+		Uint32 lower, upper = 0;
+		if (nArgc > 2) {
+			if (Eval_Range(psArgs[2], &lower, &upper, false) < 0) {
+				return DEBUGGER_CMDDONE;
+			}
+		} else {
+			lower = *disasm_addr;
+		}
+		if (bForDsp) {
+			*disasm_addr = Profile_DspShowAddresses(lower, upper, stdout);
+		} else {
+			*disasm_addr = Profile_CpuShowAddresses(lower, upper, stdout);
+		}
+		return DEBUGGER_CMDCONT;
+
+	} else if (strcmp(psArgs[1], "on") == 0) {
 		*enabled = true;
 		fprintf(stderr, "Profiling enabled.\n");
-		return true;
-	}
-	if (strcmp(psArgs[1], "off") == 0) {
+
+	} else if (strcmp(psArgs[1], "off") == 0) {
 		*enabled = false;
 		fprintf(stderr, "Profiling disabled.\n");
-		return true;
-	}
 	
-	if (strcmp(psArgs[1], "stats") == 0) {
+	} else if (strcmp(psArgs[1], "stats") == 0) {
 		if (bForDsp) {
 			Profile_DspShowStats();
 		} else {
 			Profile_CpuShowStats();
+		}
+	} else if (strcmp(psArgs[1], "misses") == 0) {
+		if (bForDsp) {
+			fprintf(stderr, "Cache misses are recorded only for CPU, not DSP.\n");
+		} else {
+			Profile_CpuShowMisses(show);
 		}
 	} else if (strcmp(psArgs[1], "cycles") == 0) {
 		if (bForDsp) {
@@ -870,15 +707,29 @@ bool Profile_Command(int nArgc, char *psArgs[], bool bForDsp)
 		} else {
 			Profile_CpuShowCounts(show, false);
 		}
-	} else if (strcmp(psArgs[1], "symbols") == 0)	{
+	} else if (strcmp(psArgs[1], "symbols") == 0) {
 		if (bForDsp) {
 			Profile_DspShowCounts(show, true);
 		} else {
 			Profile_CpuShowCounts(show, true);
 		}
+	} else if (strcmp(psArgs[1], "callers") == 0) {
+		if (bForDsp) {
+			Profile_DspShowCallers(stdout);
+		} else {
+			Profile_CpuShowCallers(stdout);
+		}
+	} else if (strcmp(psArgs[1], "stack") == 0) {
+		Profile_ShowStack(bForDsp);
+
+	} else if (strcmp(psArgs[1], "save") == 0) {
+		Profile_Save(psArgs[2], bForDsp);
+
+	} else if (strcmp(psArgs[1], "loops") == 0) {
+		Profile_Loops(nArgc, psArgs);
+
 	} else {
 		DebugUI_PrintCmdHelp(psArgs[0]);
-		return false;
 	}
-	return true;
+	return DEBUGGER_CMDDONE;
 }

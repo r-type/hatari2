@@ -3,8 +3,8 @@
 
   Copyright (C) 1994, 2009-2010 by Eero Tamminen
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   calculate.c - parse numbers, number ranges and expressions. Supports
   most unary and binary operations. Parenthesis are used for indirect
@@ -126,7 +126,7 @@ static long long close_bracket(long long x);
 static int getNumber(const char *str, Uint32 *number, int *nbase)
 {
 	char *end;
-	const char const *start = str;
+	const char *start = str;
 	int base = ConfigureParams.Debugger.nNumberBase;
 	unsigned long int value;
 
@@ -224,13 +224,19 @@ static int getValue(const char *str, Uint32 *number, int *base, bool bForDsp)
 	}
 
 	if (bForDsp) {
+		int regsize = DSP_GetRegisterAddress(name, &addr, &mask);
 		/* DSP register or symbol? */
-		if (DSP_GetRegisterAddress(name, &addr, &mask)) {
+		switch (regsize) {
+		case 16:
+			*number = (*((Uint16*)addr) & mask);
+			return len;
+		case 32:
 			*number = (*addr & mask);
 			return len;
-		}
-		if (Symbols_GetDspAddress(SYMTYPE_ALL, name, number)) {
-			return len;
+		default:
+			if (Symbols_GetDspAddress(SYMTYPE_ALL, name, number)) {
+				return len;
+			}
 		}
 	} else {
 		/* a special case CPU register? */

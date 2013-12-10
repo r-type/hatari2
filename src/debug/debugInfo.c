@@ -1,8 +1,8 @@
 /*
   Hatari - debuginfo.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   debuginfo.c - functions needed to show info about the atari HW & OS
    components and "lock" that info to be shown on entering the debugger.
@@ -11,13 +11,17 @@ const char DebugInfo_fileid[] = "Hatari debuginfo.c : " __DATE__ " " __TIME__;
 
 #include <stdio.h>
 #include <assert.h>
+#include <ctype.h>
+
 #include "main.h"
 #include "bios.h"
+#include "blitter.h"
 #include "configuration.h"
 #include "debugInfo.h"
 #include "debugcpu.h"
 #include "debugdsp.h"
 #include "debugui.h"
+#include "debug_priv.h"
 #include "dsp.h"
 #include "evaluate.h"
 #include "file.h"
@@ -54,37 +58,48 @@ const char DebugInfo_fileid[] = "Hatari debuginfo.c : " __DATE__ " " __TIME__;
 
 
 /**
- * DebugInfo_GetSysbase: set osversion to given argument.
- * return sysbase address on success and zero on failure.
+ * DebugInfo_GetSysbase: get and validate system base
+ * return on success sysbase address (+ set rombase), on failure return zero
  */
-static Uint32 DebugInfo_GetSysbase(Uint16 *osversion)
+static Uint32 DebugInfo_GetSysbase(Uint32 *rombase)
 {
 	Uint32 sysbase = STMemory_ReadLong(OS_SYSBASE);
 
 	if (!STMemory_ValidArea(sysbase, OS_HEADER_SIZE)) {
-		fprintf(stderr, "Invalid TOS base address!\n");
+		fprintf(stderr, "Invalid TOS sysbase RAM address (0x%x)!\n", sysbase);
 		return 0;
 	}
-	if (sysbase != TosAddress || sysbase != STMemory_ReadLong(sysbase+0x08)) {
-		fprintf(stderr, "Sysbase and os_beg address in OS header mismatch!\n");
+	/* under TOS, sysbase = os_beg = TosAddress, but not under MiNT -> use os_beg */
+	*rombase = STMemory_ReadLong(sysbase+0x08);
+	if (!STMemory_ValidArea(*rombase, OS_HEADER_SIZE)) {
+		fprintf(stderr, "Invalid TOS sysbase ROM address (0x%x)!\n", *rombase);
 		return 0;
 	}
-	*osversion = STMemory_ReadWord(sysbase+0x02);
+	if (*rombase != TosAddress) {
+		fprintf(stderr, "os_beg (0x%x) != TOS address (0x%x), header in RAM not set up yet?\n",
+			*rombase, TosAddress);
+		return 0;
+	}
 	return sysbase;
 }
 
 /**
- * DebugInfo_CurrentBasepage: get currently running TOS program basepage
+ * DebugInfo_CurrentBasepage: get and validate currently running program basepage.
+ * if given sysbase is zero, use system sysbase.
  */
-static Uint32 DebugInfo_CurrentBasepage(void)
+static Uint32 DebugInfo_CurrentBasepage(Uint32 sysbase)
 {
-	Uint32 basepage, sysbase;
+	Uint32 basepage;
 	Uint16 osversion, osconf;
 
-	sysbase = DebugInfo_GetSysbase(&osversion);
 	if (!sysbase) {
-		return 0;
+		Uint32 rombase;
+		sysbase = DebugInfo_GetSysbase(&rombase);
+		if (!sysbase) {
+			return 0;
+		}
 	}
+	osversion = STMemory_ReadWord(sysbase+0x02);
 	if (osversion >= 0x0102) {
 		basepage = STMemory_ReadLong(sysbase+0x28);
 	} else {
@@ -104,12 +119,12 @@ static Uint32 DebugInfo_CurrentBasepage(void)
 
 
 /**
- * GetSegmentAddress: return segment address at given offset in
+ * GetBasepageValue: return basepage value at given offset in
  * TOS process basepage or zero if that is missing/invalid.
  */
-static Uint32 GetSegmentAddress(unsigned offset)
+static Uint32 GetBasepageValue(unsigned offset)
 {
-	Uint32 basepage = DebugInfo_CurrentBasepage();
+	Uint32 basepage = DebugInfo_CurrentBasepage(0);
 	if (!basepage) {
 		return 0;
 	}
@@ -127,7 +142,19 @@ static Uint32 GetSegmentAddress(unsigned offset)
  */
 Uint32 DebugInfo_GetTEXT(void)
 {
-	return GetSegmentAddress(0x08);
+	return GetBasepageValue(0x08);
+}
+/**
+ * DebugInfo_GetTEXTEnd: return current program TEXT segment end address
+ * or zero if basepage missing/invalid.  For virtual debugger variable.
+ */
+Uint32 DebugInfo_GetTEXTEnd(void)
+{
+	Uint32 addr = GetBasepageValue(0x08);
+	if (addr) {
+		return addr + GetBasepageValue(0x0C) - 1;
+	}
+	return 0;
 }
 /**
  * DebugInfo_GetDATA: return current program DATA segment address
@@ -135,7 +162,7 @@ Uint32 DebugInfo_GetTEXT(void)
  */
 Uint32 DebugInfo_GetDATA(void)
 {
-	return GetSegmentAddress(0x010);
+	return GetBasepageValue(0x010);
 }
 /**
  * DebugInfo_GetBSS: return current program BSS segment address
@@ -143,7 +170,7 @@ Uint32 DebugInfo_GetDATA(void)
  */
 Uint32 DebugInfo_GetBSS(void)
 {
-	return GetSegmentAddress(0x18);
+	return GetBasepageValue(0x18);
 }
 
 
@@ -158,7 +185,7 @@ static void DebugInfo_Basepage(Uint32 basepage)
 
 	if (!basepage) {
 		/* default to current process basepage */
-		basepage = DebugInfo_CurrentBasepage();
+		basepage = DebugInfo_CurrentBasepage(0);
 		if (!basepage) {
 			return;
 		}
@@ -202,11 +229,11 @@ static void DebugInfo_Basepage(Uint32 basepage)
 }
 
 /**
- * DebugInfo_OSHeader: display TOS OS Header
+ * DebugInfo_PrintOSHeader: output OS Header information
  */
-static void DebugInfo_OSHeader(Uint32 dummy)
+static void DebugInfo_PrintOSHeader(Uint32 sysbase)
 {
-	Uint32 sysbase, gemblock, basepage;
+	Uint32 gemblock, basepage;
 	Uint16 osversion, osconf, langbits;
 	const char *lang;
 	static const char langs[][3] = {
@@ -214,11 +241,7 @@ static void DebugInfo_OSHeader(Uint32 dummy)
 		"tr", "fi", "no", "dk", "sa", "nl", "cs", "hu"
 	};
 
-	sysbase = DebugInfo_GetSysbase(&osversion);
-	if (!sysbase) {
-		return;
-	}
-	fprintf(stderr, "TOS OS header information:\n");
+	osversion = STMemory_ReadWord(sysbase+0x02);
 	fprintf(stderr, "OS base addr : 0x%06x\n", sysbase);
 	fprintf(stderr, "OS RAM end+1 : 0x%06x\n", STMemory_ReadLong(sysbase+0x0C));
 	fprintf(stderr, "TOS version  : 0x%x\n", osversion);
@@ -261,12 +284,32 @@ static void DebugInfo_OSHeader(Uint32 dummy)
 		fprintf(stderr, "Memory pool  : 0x0056FA\n");
 		fprintf(stderr, "Kbshift addr : 0x000E1B\n");
 	}
-	basepage = DebugInfo_CurrentBasepage();
+	basepage = DebugInfo_CurrentBasepage(sysbase);
 	if (basepage) {
 		fprintf(stderr, "Basepage     : 0x%06x\n", basepage);
 	}
 }
 
+/**
+ * DebugInfo_OSHeader: display TOS OS Header and RAM one
+ * if their addresses differ
+ */
+static void DebugInfo_OSHeader(Uint32 dummy)
+{
+	Uint32 sysbase, rombase;
+
+	sysbase = DebugInfo_GetSysbase(&rombase);
+	if (!sysbase) {
+		return;
+	}
+	fprintf(stderr, "OS header information:\n");
+	DebugInfo_PrintOSHeader(sysbase);
+	if (sysbase != rombase) {
+		fprintf(stderr, "\nROM TOS OS header information:\n");
+		DebugInfo_PrintOSHeader(rombase);
+		return;
+	}
+}
 
 /**
  * DebugInfo_Cookiejar: display TOS Cookiejar content
@@ -663,7 +706,7 @@ static void DebugInfo_RegAddr(Uint32 arg)
 {
 	bool forDsp;
 	char regname[3];
-	Uint32 *regvalue, mask;
+	Uint32 *reg32, regvalue, mask;
 	char cmdbuf[12], addrbuf[6];
 	char *argv[] = { cmdbuf, addrbuf };
 	
@@ -671,34 +714,48 @@ static void DebugInfo_RegAddr(Uint32 arg)
 	regname[1] = (arg>>16)&0xff;
 	regname[2] = '\0';
 
-	if (DebugCpu_GetRegisterAddress(regname, &regvalue)) {
+	if (DebugCpu_GetRegisterAddress(regname, &reg32)) {
+		regvalue = *reg32;
 		mask = 0xffffffff;
 		forDsp = false;
 	} else {
-		if (!DSP_GetRegisterAddress(regname, &regvalue, &mask)) {
+		int regsize = DSP_GetRegisterAddress(regname, &reg32, &mask);
+		switch (regsize) {
+			/* currently regaddr supports only 32-bit Rx regs, but maybe later... */
+		case 16:
+			regvalue = *((Uint16*)reg32);
+			break;
+		case 32:
+			regvalue = *reg32;
+			break;
+		default:
 			fprintf(stderr, "ERROR: invalid address/data register '%s'!\n", regname);
 			return;
 		}
 		forDsp = true;
 	}
-       	sprintf(addrbuf, "$%x", *regvalue & mask);
+       	sprintf(addrbuf, "$%x", regvalue & mask);
 
 	if ((arg & 0xff) == 'D') {
-		strcpy(cmdbuf, "disasm");
 		if (forDsp) {
 #if ENABLE_DSP_EMU
+			strcpy(cmdbuf, "dd");
 			DebugDsp_DisAsm(2, argv);
 #endif
 		} else {
+			strcpy(cmdbuf, "d");
 			DebugCpu_DisAsm(2, argv);
 		}
 	} else {
-		strcpy(cmdbuf, "memdump");
 		if (forDsp) {
 #if ENABLE_DSP_EMU
-			DebugDsp_MemDump(2, argv);
+			/* use "Y" address space */
+			char cmd[] = "dm"; char space[] = "y";
+			char *dargv[] = { cmd, space, addrbuf };
+			DebugDsp_MemDump(3, dargv);
 #endif
 		} else {
+			strcpy(cmdbuf, "m");
 			DebugCpu_MemDump(2, argv);
 		}
 	}
@@ -754,7 +811,7 @@ static char *parse_filename;
 static void DebugInfo_FileParse(Uint32 dummy)
 {
 	if (parse_filename) {
-		DebugUI_ParseFile(parse_filename);
+		DebugUI_ParseFile(parse_filename, true);
 	} else {
 		fputs("ERROR: debugger input file name to parse isn't set!\n", stderr);
 	}
@@ -812,11 +869,13 @@ static const struct {
 	{ false,"aes",       AES_Info,             NULL, "Show AES vector contents (with <value>, show opcodes)" },
 	{ false,"basepage",  DebugInfo_Basepage,   NULL, "Show program basepage info at given <address>" },
 	{ false,"bios",      Bios_Info,            NULL, "Show BIOS opcodes" },
+	{ false,"blitter",   Blitter_Info,         NULL, "Show Blitter register values" },
 	{ false,"cookiejar", DebugInfo_Cookiejar,  NULL, "Show TOS Cookiejar contents" },
 	{ false,"crossbar",  DebugInfo_Crossbar,   NULL, "Show Falcon crossbar HW register values" },
 	{ true, "default",   DebugInfo_Default,    NULL, "Show default debugger entry information" },
 	{ true, "disasm",    DebugInfo_CpuDisAsm,  NULL, "Disasm CPU from PC or given <address>" },
 #if ENABLE_DSP_EMU
+	{ false, "dsp",      DSP_Info,             NULL, "Show misc. DSP core info (stack etc)" },
 	{ true, "dspdisasm", DebugInfo_DspDisAsm,  NULL, "Disasm DSP from given <address>" },
 	{ true, "dspmemdump",DebugInfo_DspMemDump, DebugInfo_DspMemArgs, "Dump DSP memory from given <space> <address>" },
 	{ true, "dspregs",   DebugInfo_DspRegister,NULL, "Show DSP registers values" },
@@ -834,7 +893,7 @@ static const struct {
 	{ false,"xbios",     XBios_Info,           NULL, "Show XBIOS opcodes" }
 };
 
-static int LockedFunction = 5; /* index for the "default" function */
+static int LockedFunction = 6; /* index for the "default" function */
 static Uint32 LockedArgument;
 
 /**
@@ -905,7 +964,7 @@ int DebugInfo_Command(int nArgc, char *psArgs[])
 		}
 	}
 
-	if (infotable[sub].args) {
+	if (sub >= 0 && infotable[sub].args) {
 		/* value needs callback specific conversion */
 		value = infotable[sub].args(nArgc-2, psArgs+2);
 		ok = !!value;

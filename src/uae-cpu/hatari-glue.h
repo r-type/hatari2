@@ -1,8 +1,8 @@
 /*
   Hatari - hatari-glue.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 
 #ifndef HATARI_GLUE_H
@@ -22,6 +22,8 @@ extern int intlev (void);
 extern unsigned long OpCode_GemDos(uae_u32 opcode);
 extern unsigned long OpCode_SysInit(uae_u32 opcode);
 extern unsigned long OpCode_VDI(uae_u32 opcode);
+extern unsigned long OpCode_NatFeat_ID(uae_u32 opcode);
+extern unsigned long OpCode_NatFeat_Call(uae_u32 opcode);
 
 #define write_log printf
 

@@ -1,8 +1,8 @@
 /*
   Hatari - midi.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   MIDI communication.
   Note that this code is far from being perfect. However, it is already
@@ -27,6 +27,7 @@ const char Midi_fileid[] = "Hatari midi.c : " __DATE__ " " __TIME__;
 #include "mfp.h"
 #include "midi.h"
 #include "file.h"
+#include "acia.h"
 
 
 #define ACIA_SR_INTERRUPT_REQUEST  0x80
@@ -109,9 +110,9 @@ void Midi_Reset(void)
 	nRxDataByte = 1;
 
 	if (ConfigureParams.Midi.bEnableMidi)
-	{
 		CycInt_AddRelativeInterrupt(2050, INT_CPU_CYCLE, INTERRUPT_MIDI);
-	}
+	else
+		CycInt_RemovePendingInterrupt (INTERRUPT_MIDI);
 }
 
 
@@ -122,8 +123,7 @@ void Midi_Control_ReadByte(void)
 {
 	Dprintf(("Midi_ReadControl : $%x.\n", MidiStatusRegister));
 
-	/* ACIA registers need wait states - but the value seems to vary in certain cases */
-	M68000_WaitState(8);
+	ACIA_AddWaitCycles ();						/* Additional cycles when accessing the ACIA */
 
 	IoMem[0xfffc04] = MidiStatusRegister;
 }
@@ -134,8 +134,7 @@ void Midi_Control_ReadByte(void)
  */
 void Midi_Control_WriteByte(void)
 {
-	/* ACIA registers need wait states - but the value seems to vary in certain cases */
-	M68000_WaitState(8);
+	ACIA_AddWaitCycles ();						/* Additional cycles when accessing the ACIA */
 
 	MidiControlRegister = IoMem[0xfffc04];
 
@@ -147,7 +146,7 @@ void Midi_Control_WriteByte(void)
 		Dprintf(("WriteControl: Transfer interrupt!\n"));
 
 		/* Acknowledge in MFP circuit, pass bit,enable,pending */
-		MFP_InputOnChannel(MFP_ACIA_BIT, MFP_IERB, &MFP_IPRB);
+		MFP_InputOnChannel ( MFP_INT_ACIA , 0 );
 
 		MidiStatusRegister |= ACIA_SR_INTERRUPT_REQUEST;
 	}
@@ -161,8 +160,7 @@ void Midi_Data_ReadByte(void)
 {
 	Dprintf(("Midi_ReadData : $%x.\n", 1));
 
-	/* ACIA registers need wait states (value seems to vary in certain cases) */
-	M68000_WaitState(8);
+	ACIA_AddWaitCycles ();						/* Additional cycles when accessing the ACIA */
 
 	MidiStatusRegister &= ~(ACIA_SR_INTERRUPT_REQUEST|ACIA_SR_RX_FULL);
 
@@ -181,8 +179,7 @@ void Midi_Data_WriteByte(void)
 {
 	Uint8 nTxDataByte;
 
-	/* ACIA registers need wait states (value seems to vary in certain cases) */
-	M68000_WaitState(8);
+	ACIA_AddWaitCycles ();						/* Additional cycles when accessing the ACIA */
 
 	nTxDataByte = IoMem[0xfffc06];
 
@@ -230,7 +227,7 @@ void Midi_InterruptHandler_Update(void)
 		{
 			Dprintf(("WriteData: Transfer interrupt!\n"));
 			/* Acknowledge in MFP circuit, pass bit,enable,pending */
-			MFP_InputOnChannel(MFP_ACIA_BIT, MFP_IERB, &MFP_IPRB);
+			MFP_InputOnChannel ( MFP_INT_ACIA , 0 );
 			MidiStatusRegister |= ACIA_SR_INTERRUPT_REQUEST;
 		}
 
@@ -254,7 +251,7 @@ void Midi_InterruptHandler_Update(void)
 			{
 				Dprintf(("WriteData: Receive interrupt!\n"));
 				/* Acknowledge in MFP circuit */
-				MFP_InputOnChannel(MFP_ACIA_BIT, MFP_IERB, &MFP_IPRB);
+				MFP_InputOnChannel ( MFP_INT_ACIA , 0 );
 				MidiStatusRegister |= ACIA_SR_INTERRUPT_REQUEST;
 			}
 			MidiStatusRegister |= ACIA_SR_RX_FULL;

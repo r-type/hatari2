@@ -1,8 +1,8 @@
 /*
   Hatari - control.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   This code processes commands from the Hatari control socket
 */
@@ -19,6 +19,7 @@ const char Control_fileid[] = "Hatari control.c : " __DATE__ " " __TIME__;
 #include <sys/time.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <assert.h>
 
 #include "main.h"
 #include "change.h"
@@ -270,7 +271,7 @@ static bool Control_SetPath(char *name)
  */
 static bool Control_Usage(const char *cmd)
 {
-	fprintf(stderr, "ERROR: unrecognized hatari command: '%s'", cmd);
+	fprintf(stderr, "ERROR: unrecognized hatari command: '%s'!\n", cmd);
 	fprintf(stderr,
 		"Supported commands are:\n"
 		"- hatari-debug <Debug UI command>\n"
@@ -292,13 +293,19 @@ static bool Control_Usage(const char *cmd)
 /*-----------------------------------------------------------------------*/
 /**
  * Parse Hatari debug/event/option/toggle/path/shortcut command buffer.
- * Given buffer is modified in-place.
  */
-void Control_ProcessBuffer(char *buffer)
+void Control_ProcessBuffer(const char *orig)
 {
-	char *cmd, *cmdend, *arg;
+	char *cmd, *cmdend, *arg, *buffer;
 	int ok = true;
-	
+
+	/* this is called from several different places,
+	 * so take a copy of the original buffer so
+	 * that it can be sliced & diced
+	 */
+	buffer = strdup(orig);
+	assert(buffer);
+
 	cmd = buffer;
 	do {
 		/* command terminator? */
@@ -316,7 +323,7 @@ void Control_ProcessBuffer(char *buffer)
 			if (strcmp(cmd, "hatari-option") == 0) {
 				ok = Change_ApplyCommandline(arg);
 			} else if (strcmp(cmd, "hatari-debug") == 0) {
-				ok = DebugUI_RemoteParse(arg);
+				ok = DebugUI_ParseLine(arg);
 			} else if (strcmp(cmd, "hatari-shortcut") == 0) {
 				ok = Shortcut_Invoke(arg);
 			} else if (strcmp(cmd, "hatari-event") == 0) {
@@ -350,6 +357,7 @@ void Control_ProcessBuffer(char *buffer)
 			cmd = cmdend + 1;
 		}
 	} while (ok && cmdend && *cmd);
+	free(buffer);
 }
 
 

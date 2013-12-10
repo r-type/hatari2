@@ -1,8 +1,8 @@
 /*
   Hatari - cycInt.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 
 #ifndef HATARI_CYCINT_H
@@ -19,10 +19,8 @@ typedef enum
   INTERRUPT_MFP_TIMERB,
   INTERRUPT_MFP_TIMERC,
   INTERRUPT_MFP_TIMERD,
+  INTERRUPT_ACIA_IKBD,
   INTERRUPT_IKBD_RESETTIMER,
-  INTERRUPT_IKBD_ACIA_TX,
-  INTERRUPT_IKBD_ACIA_RX,
-  INTERRUPT_IKBD_MFP,
   INTERRUPT_IKBD_AUTOSEND,
   INTERRUPT_DMASOUND_MICROWIRE, /* Used for both STE and Falcon Microwire emulation */
   INTERRUPT_CROSSBAR_25MHZ,

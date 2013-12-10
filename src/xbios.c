@@ -1,8 +1,8 @@
 /*
   Hatari - xbios.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   XBios Handler (Trap #14)
 
@@ -112,7 +112,7 @@ static bool XBios_Devconnect(Uint32 Params)
 	prescale = STMemory_ReadWord(Params+SIZE_WORD+SIZE_WORD+SIZE_WORD);
 	protocol = STMemory_ReadWord(Params+SIZE_WORD+SIZE_WORD+SIZE_WORD+SIZE_WORD);
 
-	LOG_TRACE(TRACE_OS_XBIOS, "XBIOS 0x8B Devconnect(%d, 0x%x, %d, %d, %d)\n",
+	LOG_TRACE(TRACE_OS_XBIOS, "XBIOS 0x8B Devconnect(%hd, 0x%hx, %hd, %hd, %hd)\n",
 		  src, dst, clk, prescale, protocol);
 	return false;
 }
@@ -131,12 +131,14 @@ static bool XBios_Devconnect(Uint32 Params)
 static bool XBios_Rsconf(Uint32 Params)
 {
 	Sint16 Baud,Ctrl,Ucr;
+#if ENABLE_TRACING
+	Sint16 Rsr,Tsr,Scr;
+#endif
 
 	Baud = STMemory_ReadWord(Params);
 	Ctrl = STMemory_ReadWord(Params+SIZE_WORD);
 	Ucr = STMemory_ReadWord(Params+SIZE_WORD+SIZE_WORD);
 #if ENABLE_TRACING
-	Sint16 Rsr,Tsr,Scr;
 	Rsr = STMemory_ReadWord(Params+SIZE_WORD+SIZE_WORD+SIZE_WORD);
 	Tsr = STMemory_ReadWord(Params+SIZE_WORD+SIZE_WORD+SIZE_WORD+SIZE_WORD);
 	Scr = STMemory_ReadWord(Params+SIZE_WORD+SIZE_WORD+SIZE_WORD+SIZE_WORD+SIZE_WORD);
@@ -193,8 +195,8 @@ static bool XBios_Scrdmp(Uint32 Params)
  */
 static bool XBios_HatariControl(Uint32 Params)
 {
-	char *pText;
-	pText = (char *)STRAM_ADDR(STMemory_ReadLong(Params));
+	const char *pText;
+	pText = (const char *)STRAM_ADDR(STMemory_ReadLong(Params));
 	LOG_TRACE(TRACE_OS_XBIOS, "XBIOS 0x%02X HatariControl(%s)\n", HATARI_CONTROL_OPCODE, pText);
 	Control_ProcessBuffer(pText);
 	Regs[REG_D0] = 0;
@@ -205,6 +207,9 @@ static bool XBios_HatariControl(Uint32 Params)
 #if ENABLE_TRACING
 /**
  * Map XBIOS call opcode to XBIOS function name
+ *
+ * Mapping is based on TOSHYP information:
+ * 	http://toshyp.atari.org/en/004014.html
  */
 static const char* XBios_Call2Name(Uint16 opcode)
 {
@@ -301,10 +306,10 @@ static const char* XBios_Call2Name(Uint16 opcode)
 		"VgetMonitor",
 		"VsetSync",
 		"VgetSize",
-		NULL,	/* 92 */
+		"VsetVars",	/* TOS4 internal */
 		"VsetRGB",
 		"VgetRGB",
-		NULL,	/* 95 */
+		"VcheckMode",	/* TOS4 internal (ValidMode()) */
 		"Dsp_DoBlock",
 		"Dsp_BlkHandShake",
 		"Dsp_BlkUnpacked",
@@ -355,12 +360,12 @@ static const char* XBios_Call2Name(Uint16 opcode)
 		NULL,
 		NULL,
 		NULL,
+		NULL,
+		NULL,
+		NULL,
+		NULL,	/* 149 */
 		"VsetMask",
-		NULL,	/* 147 */
-		NULL,
-		NULL,
-		NULL,
-		NULL,
+		NULL,	/* 151 */
 		NULL,
 		NULL,
 		NULL,
@@ -523,7 +528,7 @@ bool XBios(void)
 	case 12:	/* Midiws */
 	case 13:	/* Mfpint */
 	case 25:	/* Ikbdws */
-		/* ones taking word lenght/index and pointer */
+		/* ones taking word length/index and pointer */
 		LOG_TRACE(TRACE_OS_XBIOS, "XBIOS 0x%02hX %s(%hd, 0x%X)\n",
 			  XBiosCall, XBios_Call2Name(XBiosCall),
 			  STMemory_ReadWord(Params),
@@ -555,10 +560,18 @@ bool XBios(void)
 		return false;
 
 	case 5:		/* Setscreen */
+		if (STMemory_ReadWord(Params+SIZE_LONG+SIZE_LONG) == 3) {
+			/* actually VSetscreen with extra parameter */
+			LOG_TRACE(TRACE_OS_XBIOS, "XBIOS 0x%02hX VsetScreen(0x%X, 0x%X, 3, 0x%hX)\n",
+				  XBiosCall, STMemory_ReadLong(Params),
+				  STMemory_ReadLong(Params+SIZE_LONG),
+				  STMemory_ReadWord(Params+SIZE_LONG+SIZE_LONG+SIZE_WORD));
+			return false;			
+		}
 	case 109:	/* Dsp_ExecProg */
 	case 110:	/* Dsp_ExecBoot */
 	case 116:	/* Dsp_LoadSubroutine */
-	case 146:	/* VsetMask */
+	case 150:	/* VsetMask */
 		/* ones taking two longs/pointers and a word */
 		LOG_TRACE(TRACE_OS_XBIOS, "XBIOS 0x%02hX %s(0x%X, 0x%X, 0x%hX)\n",
 			  XBiosCall, XBios_Call2Name(XBiosCall),

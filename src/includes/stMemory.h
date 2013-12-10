@@ -1,8 +1,8 @@
 /*
   Hatari - stMemory.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 
 #ifndef HATARI_STMEMORY_H
@@ -163,7 +163,6 @@ static inline Uint8 STMemory_ReadByte(Uint32 Address)
 }
 
 
-extern void STMemory_Clear(Uint32 StartAddress, Uint32 EndAddress);
 extern bool STMemory_SafeCopy(Uint32 addr, Uint8 *src, unsigned int len, const char *name);
 extern void STMemory_MemorySnapShot_Capture(bool bSave);
 extern void STMemory_SetDefaultConfig(void);

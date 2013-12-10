@@ -7,8 +7,8 @@
   *
   * Adaptation to Hatari by Thomas Huth
   *
-  * This file is distributed under the GNU Public License, version 2 or at
-  * your option any later version. Read the file gpl.txt for details.
+  * This file is distributed under the GNU General Public License, version 2
+  * or at your option any later version. Read the file gpl.txt for details.
   */
 
 
@@ -46,7 +46,7 @@
 /*			YEAH! Hatari is now the first emulator to pass the Transbeauce 2 protection :)	*/
 /* 2007/12/18	[NP]	More precise timings for HBL, VBL and MFP interrupts. On ST, these interrupts	*/
 /*			are taking 56 cycles instead of the 44 cycles in the 68000's documentation.	*/
-/* 2007/12/24	[NP]	If an interrupt (HBL, VBL) is pending after intruction 'n' was processed, the	*/
+/* 2007/12/24	[NP]	If an interrupt (HBL, VBL) is pending after instruction 'n' was processed, the	*/
 /*			exception should be called before instr. 'n+1' is processed, not after (else the*/
 /*			interrupt's handler is delayed by one 68000's instruction, which could break	*/
 /*			some demos with too strict timings) (ACF's Demo Main Menu).			*/
@@ -80,7 +80,7 @@
 /*			expires very often). Such precision is required for very recent hardscroll	*/
 /*			techniques that use 'stop' to stay in sync with the video shifter.		*/
 /* 2008/11/23	[NP]	In 'do_specialties()', when in STOP state, we must first test for a pending	*/
-/*			interrupt that would exit the STOP state immediatly, without doing a 'while'	*/
+/*			interrupt that would exit the STOP state immediately, without doing a 'while'	*/
 /*			loop until 'SPCFLAG_INT' or 'SPCFLAG_DOINT' are set.				*/
 /* 2008/11/29	[NP]	Call 'InterruptAddJitter()' when a video interrupt happens to precisely emulate */
 /*			the jitter happening on the Atari (see video.c for the jitter patterns).	*/
@@ -115,6 +115,11 @@
 /* 2013/03/16	[NP]	In refill_prefetch(), reload only one new word in regs.prefetch if low word is	*/
 /*			still valid : low word goes to high word and we reload only low word		*/
 /*			(fix EOR/ADD self modified code in the protection for the game Damocles).	*/
+/* 2013/04/11	[NP]	In Exception(), call MFP_ProcessIACK after 12 cycles to update the MFP's vector	*/
+/*			number used for the exception (see mfp.c).					*/
+/* 2013/05/03	[NP]	In Exception(), handle IACK for HBL and VBL interrupts too, allowing pending bit*/
+/*			to be set twice during an active video interrupt (correct fix for Super Monaco	*/
+/*			GP, Super Hang On, Monster Business, European Demo's Intro, BBC Menu 52).	*/
 
 const char NewCpu_fileid[] = "Hatari newcpu.c : " __DATE__ " " __TIME__;
 
@@ -850,6 +855,30 @@ void Exception(int nr, uaecptr oldpc, int ExceptionSource)
 
     /*if( nr>=2 && nr<10 )  fprintf(stderr,"Exception (-> %i bombs)!\n",nr);*/
 
+    /* Pending bits / vector number can change before the end of the IACK sequence. */
+    /* We need to handle MFP and HBL/VBL cases for this. */
+    if ( ExceptionSource == M68000_EXC_SRC_INT_MFP )
+    {
+        M68000_AddCycles ( CPU_IACK_CYCLES_MFP );
+	CPU_IACK = true;
+        while ( ( PendingInterruptCount <= 0 ) && ( PendingInterruptFunction ) )
+            CALL_VAR(PendingInterruptFunction);
+        nr = MFP_ProcessIACK ( nr );
+	CPU_IACK = false;
+    }
+    else if ( ( ExceptionSource == M68000_EXC_SRC_AUTOVEC ) && ( ( nr == 26 ) || ( nr == 28 ) ) )
+    {
+        M68000_AddCycles ( CPU_IACK_CYCLES_VIDEO );
+	CPU_IACK = true;
+        while ( ( PendingInterruptCount <= 0 ) && ( PendingInterruptFunction ) )
+            CALL_VAR(PendingInterruptFunction);
+        if ( MFP_UpdateNeeded == true )
+            MFP_UpdateIRQ ( 0 );					/* update MFP's state if some internal timers related to MFP expired */
+        pendingInterrupts &= ~( 1 << ( nr - 24 ) );			/* clear HBL or VBL pending bit */
+	CPU_IACK = false;
+    }
+
+
     if (ExceptionSource == M68000_EXC_SRC_CPU)
       {
         if (bVdiAesIntercept && nr == 0x22)
@@ -1029,20 +1058,16 @@ void Exception(int nr, uaecptr oldpc, int ExceptionSource)
     /* Handle exception cycles (special case for MFP) */
     if (ExceptionSource == M68000_EXC_SRC_INT_MFP)
     {
-      M68000_AddCycles(44+12);			/* MFP interrupt, 'nr' can be in a different range depending on $fffa17 */
+      M68000_AddCycles(44+12-CPU_IACK_CYCLES_MFP);	/* MFP interrupt, 'nr' can be in a different range depending on $fffa17 */
     }
     else if (nr >= 24 && nr <= 31)
     {
-      if ( nr == 26 )				/* HBL */
-      {
-        /* store current cycle pos when then interrupt was received (see video.c) */
-        LastCycleHblException = Cycles_GetCounter(CYCLES_COUNTER_VIDEO);
-        M68000_AddCycles(44+12);		/* Video Interrupt */
-      }
-      else if ( nr == 28 ) 			/* VBL */
-        M68000_AddCycles(44+12);		/* Video Interrupt */
+      if ( nr == 26 )					/* HBL */
+        M68000_AddCycles(44+12-CPU_IACK_CYCLES_VIDEO);	/* Video Interrupt */
+      else if ( nr == 28 ) 				/* VBL */
+        M68000_AddCycles(44+12-CPU_IACK_CYCLES_VIDEO);	/* Video Interrupt */
       else
-        M68000_AddCycles(44+4);			/* Other Interrupts */
+        M68000_AddCycles(44+4);				/* Other Interrupts */
     }
     else if(nr >= 32 && nr <= 47)
     {
@@ -1515,7 +1540,7 @@ static void do_trace (void)
 	m68k_setpc (m68k_getpc ());
 	fill_prefetch_0 ();
 	opcode = get_word (regs.pc);
-	if (opcode == 0x4e72 		/* RTE */
+	if (opcode == 0x4e73 		/* RTE */
 	    || opcode == 0x4e74 		/* RTD */
 	    || opcode == 0x4e75 		/* RTS */
 	    || opcode == 0x4e77 		/* RTR */
@@ -1547,9 +1572,17 @@ static void do_trace (void)
 
 static bool do_specialties_interrupt (int Pending)
 {
-    /* Check for MFP ints first (level 6) */
+#if ENABLE_DSP_EMU
+    /* Check for DSP int first (if enabled) (level 6) */
+    if (regs.spcflags & SPCFLAG_DSP) {
+       if (DSP_ProcessIRQ() == true)
+         return true;
+    }
+#endif
+
+    /* Check for MFP ints (level 6) */
     if (regs.spcflags & SPCFLAG_MFP) {
-       if (MFP_CheckPendingInterrupts() == true)
+       if (MFP_ProcessIRQ() == true)
          return true;					/* MFP exception was generated, no higher interrupt can happen */
     }
 
@@ -1593,26 +1626,14 @@ static int do_specialties (void)
 
     /* Handle the STOP instruction */
     if ( regs.spcflags & SPCFLAG_STOP ) {
+//fprintf ( stderr , "test stop %d\n" , nCyclesMainCounter );
         /* We first test if there's a pending interrupt that would */
-        /* allow to immediatly leave the STOP state */
+        /* allow to immediately leave the STOP state */
         if ( do_specialties_interrupt(true) ) {		/* test if there's an interrupt and add pending jitter */
             regs.stopped = 0;
             unset_special (SPCFLAG_STOP);
+//fprintf ( stderr , "exit stop %d\n" , nCyclesMainCounter );
         }
-#if 0
-	if (regs.spcflags & SPCFLAG_MFP)			/* MFP int */
-	    MFP_CheckPendingInterrupts();
-	
-	if (regs.spcflags & (SPCFLAG_INT | SPCFLAG_DOINT)) {	/* VBL/HBL ints */
-	    int intr = intlev ();
-	    unset_special (SPCFLAG_INT | SPCFLAG_DOINT);
-	    if (intr != -1 && intr > regs.intmask) {
-	        Interrupt (intr , true);		/* process the interrupt and add pending jitter */
-		regs.stopped = 0;
-		unset_special (SPCFLAG_STOP);
-	    }
-	}
-#endif
 
 	/* No pending int, we have to wait for the next matching int */
 	while (regs.spcflags & SPCFLAG_STOP) {
@@ -1624,33 +1645,16 @@ static int do_specialties (void)
 	    M68000_AddCycles(4);
 	
 	    /* It is possible one or more ints happen at the same time */
-	    /* We must process them during the same cpu cycle until the special INT flag is set */
-	    while (PendingInterruptCount<=0 && PendingInterruptFunction) {
-		/* 1st, we call the interrupt handler */
+	    /* We must process them during the same cpu cycle then choose the highest priority one */
+	    while ( ( PendingInterruptCount <= 0 ) && ( PendingInterruptFunction ) )
 		CALL_VAR(PendingInterruptFunction);
-		
-		/* Then we check if this handler triggered an interrupt to process */
-	        if ( do_specialties_interrupt(false) ) {	/* test if there's an interrupt and add non pending jitter */
-		    regs.stopped = 0;
-		    unset_special (SPCFLAG_STOP);
-		    break;
-		}
-#if 0		
-		/* Then we check if this handler triggered an MFP int to process */
-		if (regs.spcflags & SPCFLAG_MFP)
-		    MFP_CheckPendingInterrupts();
-	
-		if (regs.spcflags & (SPCFLAG_INT | SPCFLAG_DOINT)) {
-		    int intr = intlev ();
-		    unset_special (SPCFLAG_INT | SPCFLAG_DOINT);
-		    if (intr != -1 && intr > regs.intmask) {
-			Interrupt (intr , false);	/* process the interrupt and add non pending jitter */
-			regs.stopped = 0;
-			unset_special (SPCFLAG_STOP);
-			break;
-		    }
-		}
-#endif
+	    if ( MFP_UpdateNeeded == true )
+	        MFP_UpdateIRQ ( 0 );
+
+	    /* Check is there's an interrupt to process (could be a delayed MFP interrupt) */
+	    if ( do_specialties_interrupt(false) ) {	/* test if there's an interrupt and add non pending jitter */
+		regs.stopped = 0;
+		unset_special (SPCFLAG_STOP);
 	    }
 	}
     }
@@ -1670,26 +1674,6 @@ static int do_specialties (void)
 	unset_special (SPCFLAG_INT);
 	set_special (SPCFLAG_DOINT);
     }
-#if 0
-    if (regs.spcflags & (SPCFLAG_INT | SPCFLAG_DOINT)) {
-	int intr = intlev ();
-	/* SPCFLAG_DOINT will be enabled again in MakeFromSR to handle pending interrupts! */
-//	unset_special (SPCFLAG_DOINT);
-	unset_special (SPCFLAG_INT | SPCFLAG_DOINT);
-	if (intr != -1 && intr > regs.intmask) {
-	    Interrupt (intr , false);		/* call Interrupt() with Pending=false, not necessarily true but harmless */
-	    regs.stopped = 0;			/* [NP] useless ? */
-	}
-    }
-    if (regs.spcflags & SPCFLAG_INT) {
-	unset_special (SPCFLAG_INT);
-	set_special (SPCFLAG_DOINT);
-    }
-
-    if (regs.spcflags & SPCFLAG_MFP) {          /* Check for MFP interrupts */
-	MFP_CheckPendingInterrupts();
-    }
-#endif
 
     if (regs.spcflags & SPCFLAG_DEBUGGER)
 	DebugCpu_Check();
@@ -1735,7 +1719,7 @@ static void m68k_run_1 (void)
 	    Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
 
 	    LOG_TRACE_PRINT ( "cpu video_cyc=%6d %3d@%3d : " , FrameCycles, LineCycles, HblCounterVideo );
-	    Disasm(stderr, m68k_getpc (), NULL, 1, DISASM_ENGINE_EXT);
+	    Disasm(stderr, m68k_getpc (), NULL, 1);
 	}
 
 	/* assert (!regs.stopped && !(regs.spcflags & SPCFLAG_STOP)); */
@@ -1773,27 +1757,18 @@ static void m68k_run_1 (void)
 	  nWaitStateCycles = 0;
 	}
 
-#if 0
-	while (PendingInterruptCount <= 0 && PendingInterruptFunction)
-	  CALL_VAR(PendingInterruptFunction);
-#else
 	/* We can have several interrupts at the same time before the next CPU instruction */
 	/* We must check for pending interrupt and call do_specialties_interrupt() only */
 	/* if the cpu is not in the STOP state. Else, the int could be acknowledged now */
 	/* and prevent exiting the STOP state when calling do_specialties() after. */
 	/* For performance, we first test PendingInterruptCount, then regs.spcflags */
-	while ( ( PendingInterruptCount <= 0 ) && ( PendingInterruptFunction ) && ( ( regs.spcflags & SPCFLAG_STOP ) == 0 ) )
-	  {
-	    CALL_VAR(PendingInterruptFunction);		/* call the interrupt handler */
-	    do_specialties_interrupt(false);		/* test if there's an mfp/video interrupt and add non pending jitter */
-#if 0
-		  if ( regs.spcflags & ( SPCFLAG_MFP | SPCFLAG_INT ) ) {	/* only check mfp/video interrupts */
-		    if (do_specialties ())			/* check if this latest int has higher priority */
-			return;
-		  }
-#endif
-	  }
-#endif
+	if ( PendingInterruptCount <= 0 )
+	{
+	    while ( ( PendingInterruptCount <= 0 ) && ( PendingInterruptFunction ) && ( ( regs.spcflags & SPCFLAG_STOP ) == 0 ) )
+		CALL_VAR ( PendingInterruptFunction );		/* call the interrupt's handler */
+	    if ( MFP_UpdateNeeded == true )
+		MFP_UpdateIRQ ( 0 );				/* update MFP's state if some internal timers related to MFP expired */
+	}
 
 	if (regs.spcflags) {
 	    if (do_specialties ())
@@ -1823,7 +1798,7 @@ static void m68k_run_2 (void)
 	    Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
 
 	    LOG_TRACE_PRINT ( "cpu video_cyc=%6d %3d@%3d : " , FrameCycles, LineCycles, HblCounterVideo );
-	    Disasm(stderr, m68k_getpc (), NULL, 1, DISASM_ENGINE_EXT);
+	    Disasm(stderr, m68k_getpc (), NULL, 1);
 	}
 
 	/* assert (!regs.stopped && !(regs.spcflags & SPCFLAG_STOP)); */
@@ -1852,8 +1827,13 @@ static void m68k_run_2 (void)
 	  nWaitStateCycles = 0;
 	}
 
-	while (PendingInterruptCount <= 0 && PendingInterruptFunction)
-	  CALL_VAR(PendingInterruptFunction);
+        if ( PendingInterruptCount <= 0 )
+	{
+	    while ( ( PendingInterruptCount <= 0 ) && ( PendingInterruptFunction ) )
+		CALL_VAR(PendingInterruptFunction);
+	    if ( MFP_UpdateNeeded == true )
+		MFP_UpdateIRQ ( 0 );
+	}
 
 	if (regs.spcflags) {
 	    if (do_specialties ())

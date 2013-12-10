@@ -1,8 +1,8 @@
 /*
   Hatari - resolution.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   SDL resolution limitation and selection routines.
 */
@@ -52,7 +52,7 @@ void Resolution_Init(void)
 		ConfigureParams.Screen.nMaxHeight = DesktopHeight;
 	}
 	Dprintf(("Desktop resolution: %dx%d\n",DesktopWidth, DesktopHeight));
-	Dprintf(("Configured Max res: %dx%d\n",ConfigureParams.Screen.nMaxWidth,ConfigureParams.Screen.nMaxHeight));
+	fprintf(stderr, "Configured max Hatari resolution = %dx%d.\n", ConfigureParams.Screen.nMaxWidth, ConfigureParams.Screen.nMaxHeight);
 }
 
 /**
@@ -198,14 +198,14 @@ void Resolution_Search(int *width, int *height, int *bpp)
  * configuration, or if that's too large for the requested bit depth,
  * to the largest available video mode size.
  */
-void Resolution_GetLimits(int *width, int *height, int *bpp)
+void Resolution_GetLimits(int *width, int *height, int *bpp, bool keep)
 {
 	*width = *height = 0;
 	/* constrain max size to what HW/SDL offers */
 	Dprintf(("resolution: request limits for: %dx%dx%d\n", *width, *height, *bpp));
 	Resolution_Search(width, height, bpp);
 	
-	if (bInFullScreen && ConfigureParams.Screen.bKeepResolution) {
+	if (bInFullScreen && keep) {
 		/* resolution change not allowed */
 		Resolution_GetDesktopSize(width, height);
 		return;

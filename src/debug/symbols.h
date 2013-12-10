@@ -1,8 +1,8 @@
 /*
  * Hatari - symbols.h
  * 
- * This file is distributed under the GNU Public License, version 2 or at
- * your option any later version. Read the file gpl.txt for details.
+ * This file is distributed under the GNU General Public License, version 2
+ * or at your option any later version. Read the file gpl.txt for details.
  */
 
 #ifndef HATARI_SYMBOLS_H
@@ -31,10 +31,13 @@ extern bool Symbols_GetDspAddress(symtype_t symtype, const char *name, Uint32 *a
 /* symbol address -> name search */
 extern const char* Symbols_GetByCpuAddress(Uint32 addr);
 extern const char* Symbols_GetByDspAddress(Uint32 addr);
+/* symbol address -> index */
+extern int Symbols_GetCpuAddressIndex(Uint32 addr);
+extern int Symbols_GetDspAddressIndex(Uint32 addr);
+/* how many symbols are loaded */
+extern int Symbols_CpuCount(void);
+extern int Symbols_DspCount(void);
 /* symbols/dspsymbols command parsing */
 extern int Symbols_Command(int nArgc, char *psArgs[]);
-/* how many symbols are loaded */
-extern unsigned int Symbols_CpuCount(void);
-extern unsigned int Symbols_DspCount(void);
 
 #endif

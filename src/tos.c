@@ -1,8 +1,8 @@
 /*
   Hatari - tos.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Load TOS image file into ST memory, fix/setup for emulator.
 
@@ -108,7 +108,8 @@ enum
 {
 	TP_ALWAYS,            /* Patch should alway be applied */
 	TP_HDIMAGE_OFF,       /* Apply patch only if HD emulation is off */
-	TP_ANTI_STE           /* Apply patch only if running on plain ST */
+	TP_ANTI_STE,          /* Apply patch only if running on plain ST */
+	TP_ANTI_PMMU          /* Apply patch only if no PMMU is available */
 };
 
 /* This structure is used for patching the TOS ROMs */
@@ -186,32 +187,34 @@ static const TOS_PATCH TosPatches[] =
   { 0x206, -1, pszDmaBoot, TP_HDIMAGE_OFF, 0xE00898, 0x610000E0, 4, pNopOpcodes }, /* BSR.W $E0097A */
 
   { 0x306, -1, pszRomCheck, TP_ALWAYS, 0xE007D4, 0x2E3C0001, 4, pRomCheckOpcode306 },
-  { 0x306, -1, pszNoPmmu, TP_ALWAYS, 0xE00068, 0xF0394000, 24, pNopOpcodes },
-  { 0x306, -1, pszNoPmmu, TP_ALWAYS, 0xE01702, 0xF0394C00, 32, pNopOpcodes },
+  { 0x306, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE00068, 0xF0394000, 24, pNopOpcodes },
+  { 0x306, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE01702, 0xF0394C00, 32, pNopOpcodes },
 
-  { 0x400, -1, pszNoPmmu, TP_ALWAYS, 0xE00064, 0xF0394000, 24, pNopOpcodes },
-  { 0x400, -1, pszNoPmmu, TP_ALWAYS, 0xE0148A, 0xF0394C00, 32, pNopOpcodes },
-  { 0x400, -1, pszNoPmmu, TP_ALWAYS, 0xE03948, 0xF0394000, 24, pNopOpcodes },
+  { 0x400, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE00064, 0xF0394000, 24, pNopOpcodes },
+  { 0x400, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE0148A, 0xF0394C00, 32, pNopOpcodes },
+  { 0x400, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE03948, 0xF0394000, 24, pNopOpcodes },
   { 0x400, -1, pszRomCheck, TP_ALWAYS, 0xE00686, 0x2E3C0007, 4, pRomCheckOpcode404 },
 
-  { 0x401, -1, pszNoPmmu, TP_ALWAYS, 0xE0006A, 0xF0394000, 24, pNopOpcodes },
-  { 0x401, -1, pszNoPmmu, TP_ALWAYS, 0xE014A8, 0xF0394C00, 32, pNopOpcodes },
-  { 0x401, -1, pszNoPmmu, TP_ALWAYS, 0xE03946, 0xF0394000, 24, pNopOpcodes },
+  { 0x401, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE0006A, 0xF0394000, 24, pNopOpcodes },
+  { 0x401, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE014A8, 0xF0394C00, 32, pNopOpcodes },
+  { 0x401, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE03946, 0xF0394000, 24, pNopOpcodes },
   { 0x401, -1, pszRomCheck, TP_ALWAYS, 0xE006A6, 0x2E3C0007, 4, pRomCheckOpcode404 },
 
-  { 0x402, -1, pszNoPmmu, TP_ALWAYS, 0xE0006A, 0xF0394000, 24, pNopOpcodes },
-  { 0x402, -1, pszNoPmmu, TP_ALWAYS, 0xE014A8, 0xF0394C00, 32, pNopOpcodes },
-  { 0x402, -1, pszNoPmmu, TP_ALWAYS, 0xE03946, 0xF0394000, 24, pNopOpcodes },
+  { 0x402, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE0006A, 0xF0394000, 24, pNopOpcodes },
+  { 0x402, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE014A8, 0xF0394C00, 32, pNopOpcodes },
+  { 0x402, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE03946, 0xF0394000, 24, pNopOpcodes },
   { 0x402, -1, pszRomCheck, TP_ALWAYS, 0xE006A6, 0x2E3C0007, 4, pRomCheckOpcode404 },
 
-  { 0x404, -1, pszNoPmmu, TP_ALWAYS, 0xE0006A, 0xF0394000, 24, pNopOpcodes },
-  { 0x404, -1, pszNoPmmu, TP_ALWAYS, 0xE014E6, 0xF0394C00, 32, pNopOpcodes },
-  { 0x404, -1, pszNoPmmu, TP_ALWAYS, 0xE039A0, 0xF0394000, 24, pNopOpcodes },
+  { 0x404, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE0006A, 0xF0394000, 24, pNopOpcodes },
+  { 0x404, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE014E6, 0xF0394C00, 32, pNopOpcodes },
+  { 0x404, -1, pszNoPmmu, TP_ANTI_PMMU, 0xE039A0, 0xF0394000, 24, pNopOpcodes },
   { 0x404, -1, pszRomCheck, TP_ALWAYS, 0xE006B0, 0x2E3C0007, 4, pRomCheckOpcode404 },
+  { 0x404, -1, pszDmaBoot, TP_ALWAYS, 0xE01C9E, 0x62FC31FC, 2, pNopOpcodes },  /* Just a delay */
+  { 0x404, -1, pszDmaBoot, TP_ALWAYS, 0xE01CB2, 0x62FC31FC, 2, pNopOpcodes },  /* Just a delay */
 
-  { 0x492, -1, pszNoPmmu, TP_ALWAYS, 0x00F946, 0xF0394000, 24, pNopOpcodes },
-  { 0x492, -1, pszNoPmmu, TP_ALWAYS, 0x01097A, 0xF0394C00, 32, pNopOpcodes },
-  { 0x492, -1, pszNoPmmu, TP_ALWAYS, 0x012E04, 0xF0394000, 24, pNopOpcodes },
+  { 0x492, -1, pszNoPmmu, TP_ANTI_PMMU, 0x00F946, 0xF0394000, 24, pNopOpcodes },
+  { 0x492, -1, pszNoPmmu, TP_ANTI_PMMU, 0x01097A, 0xF0394C00, 32, pNopOpcodes },
+  { 0x492, -1, pszNoPmmu, TP_ANTI_PMMU, 0x012E04, 0xF0394000, 24, pNopOpcodes },
 
   { 0, 0, NULL, 0, 0, 0, 0, NULL }
 };
@@ -265,6 +268,11 @@ static void TOS_FixRom(void)
 		if (pPatch->Version == TosVersion
 		    && (pPatch->Country == TosCountry || pPatch->Country == -1))
 		{
+#if ENABLE_WINUAE_CPU
+			bool use_mmu = ConfigureParams.System.bMMU;
+#else
+			bool use_mmu = false;
+#endif
 			/* Make sure that we really patch the right place by comparing data: */
 			if(STMemory_ReadLong(pPatch->Address) == pPatch->OldData)
 			{
@@ -274,7 +282,9 @@ static void TOS_FixRom(void)
 				        && !ConfigureParams.HardDisk.bUseIdeMasterHardDiskImage
 				        && ConfigureParams.System.bFastBoot)
 				    || (pPatch->Flags == TP_ANTI_STE
-				        && ConfigureParams.System.nMachineType == MACHINE_ST))
+				        && ConfigureParams.System.nMachineType == MACHINE_ST)
+				    || (pPatch->Flags == TP_ANTI_PMMU && !use_mmu)
+				   )
 				{
 					/* Now we can really apply the patch! */
 					Log_Printf(LOG_DEBUG, "Applying TOS patch '%s'.\n", pPatch->pszName);
@@ -437,8 +447,10 @@ bool TOS_AutoStartClose(FILE *fp)
  */
 static void TOS_CheckSysConfig(void)
 {
+	int oldCpuLevel = ConfigureParams.System.nCpuLevel;
 	MACHINETYPE oldMachineType = ConfigureParams.System.nMachineType;
-	if ((TosVersion == 0x0106 || TosVersion == 0x0162) && ConfigureParams.System.nMachineType != MACHINE_STE)
+	if (((TosVersion == 0x0106 || TosVersion == 0x0162) && ConfigureParams.System.nMachineType != MACHINE_STE)
+	    || (TosVersion == 0x0162 && ConfigureParams.System.nCpuLevel != 0))
 	{
 		Log_AlertDlg(LOG_ERROR, "TOS versions 1.06 and 1.62 are for Atari STE only.\n"
 		             " ==> Switching to STE mode now.\n");
@@ -480,7 +492,7 @@ static void TOS_CheckSysConfig(void)
 	{
 		Log_AlertDlg(LOG_ERROR, "TOS versions <= 1.4 work only in\n"
 		             "ST mode and with a 68000 CPU.\n"
-		             " ==> Switching to ST mode now.\n");
+		             " ==> Switching to ST mode with 68000 now.\n");
 		IoMem_UnInit();
 		ConfigureParams.System.nMachineType = MACHINE_ST;
 		ClocksTimings_InitMachine ( ConfigureParams.System.nMachineType );
@@ -500,11 +512,17 @@ static void TOS_CheckSysConfig(void)
 		ConfigureParams.System.nCpuFreq = 8;
 		ConfigureParams.System.nCpuLevel = 0;
 	}
-	else if (TosVersion >= 0x0300 && ConfigureParams.System.nCpuLevel < 2)
+	else if ((TosVersion & 0x0f00) == 0x0400 && ConfigureParams.System.nCpuLevel < 2)
 	{
-		Log_AlertDlg(LOG_ERROR, "This TOS version requires a CPU >= 68020.\n"
+		Log_AlertDlg(LOG_ERROR, "TOS versions 4.x require a CPU >= 68020.\n"
 		             " ==> Switching to 68020 mode now.\n");
 		ConfigureParams.System.nCpuLevel = 2;
+	}
+	else if ((TosVersion & 0x0f00) == 0x0300 && ConfigureParams.System.nCpuLevel < 3)
+	{
+		Log_AlertDlg(LOG_ERROR, "TOS versions 3.0x require a CPU >= 68030.\n"
+		             " ==> Switching to 68030 mode now.\n");
+		ConfigureParams.System.nCpuLevel = 3;
 	}
 	/* TOS version triggered changes? */
 	if (ConfigureParams.System.nMachineType != oldMachineType)
@@ -517,9 +535,16 @@ static void TOS_CheckSysConfig(void)
 		} else {
 			ConfigureParams.System.n_FPUType = FPU_NONE;	/* TODO: or leave it as-is? */
 		}
-		ConfigureParams.System.bAddressSpace24 = true;
-		ConfigureParams.System.bMMU = false;	/* does this affect also other than 040 CPUs? */
+		if (TosVersion < 0x200)
+		{
+			ConfigureParams.System.bAddressSpace24 = true;
+			ConfigureParams.System.bMMU = false;
+		}
 #endif
+		M68000_CheckCpuSettings();
+	}
+	else if (ConfigureParams.System.nCpuLevel != oldCpuLevel)
+	{
 		M68000_CheckCpuSettings();
 	}
 	if (TosVersion < 0x0104 && ConfigureParams.HardDisk.bUseHardDiskDirectories)

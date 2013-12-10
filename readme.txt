@@ -2,7 +2,7 @@
 
                                     Hatari
 
-                                 Version 1.6.2
+                             Version 1.7, June 2013
 
                           http://hatari.tuxfamily.org/
 
@@ -72,7 +72,7 @@ Hatari (some Linux distributions use separate development packages for these
 header files)!
 
 For compiling Hatari, you need a C compiler (preferably GNU C), and a working
-CMake installation (see http://www.cmake.org/ for details).
+CMake (v2.8 or newer) installation, see http://www.cmake.org/ for details.
 
 CMake can generate makefiles for various flavours of "Make" (like GNU-Make)
 and various IDEs like Xcode on Mac OS X. To run CMake, you've got to pass the
@@ -89,7 +89,7 @@ the (non-CMake) Makefiles coming with Hatari:
 
 Have a look at the manual of CMake for other options. Alternatively, you can
 use the "cmake-gui" program to configure the sources with a graphical
-application.
+application or "ccmake" to configure them with ncurses UI.
 
 For your convenience we also ship an old-fashioned configure script which can
 be used as a wrapper for running cmake. Type "./configure --help" to see the

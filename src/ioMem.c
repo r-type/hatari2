@@ -1,8 +1,8 @@
 /*
   Hatari - ioMem.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   This is where we intercept read/writes to/from the hardware. The ST's memory
   is nicely split into four main parts - the bottom area of RAM is for user
@@ -287,7 +287,7 @@ uae_u32 IoMem_bget(uaecptr addr)
 
 	val = IoMem[addr];
 
-	LOG_TRACE(TRACE_IOMEM_RD, "IO read.b $%06x = $%02x\n", addr, val);
+	LOG_TRACE(TRACE_IOMEM_RD, "IO read.b $%06x = $%02x pc=%x\n", addr, val, M68000_GetPC());
 
 	return val;
 }
@@ -339,7 +339,7 @@ uae_u32 IoMem_wget(uaecptr addr)
 
 	val = IoMem_ReadWord(addr);
 
-	LOG_TRACE(TRACE_IOMEM_RD, "IO read.w $%06x = $%04x\n", addr, val);
+	LOG_TRACE(TRACE_IOMEM_RD, "IO read.w $%06x = $%04x pc=%x\n", addr, val, M68000_GetPC());
 
 	return val;
 }
@@ -403,7 +403,7 @@ uae_u32 IoMem_lget(uaecptr addr)
 
 	val = IoMem_ReadLong(addr);
 
-	LOG_TRACE(TRACE_IOMEM_RD, "IO read.l $%06x = $%08x\n", addr, val);
+	LOG_TRACE(TRACE_IOMEM_RD, "IO read.l $%06x = $%08x pc=%x\n", addr, val, M68000_GetPC());
 
 	return val;
 }
@@ -417,7 +417,7 @@ void IoMem_bput(uaecptr addr, uae_u32 val)
 {
 	addr &= 0x00ffffff;                           /* Use a 24 bit address */
 
-	LOG_TRACE(TRACE_IOMEM_WR, "IO write.b $%06x = $%02x\n", addr, val&0x0ff);
+	LOG_TRACE(TRACE_IOMEM_WR, "IO write.b $%06x = $%02x pc=%x\n", addr, val&0x0ff, M68000_GetPC());
 
 	if (addr < 0xff8000 || !regs.s)
 	{
@@ -453,7 +453,7 @@ void IoMem_wput(uaecptr addr, uae_u32 val)
 
 	addr &= 0x00ffffff;                           /* Use a 24 bit address */
 
-	LOG_TRACE(TRACE_IOMEM_WR, "IO write.w $%06x = $%04x\n", addr, val&0x0ffff);
+	LOG_TRACE(TRACE_IOMEM_WR, "IO write.w $%06x = $%04x pc=%x\n", addr, val&0x0ffff, M68000_GetPC());
 
 	if (addr < 0x00ff8000 || !regs.s)
 	{
@@ -501,7 +501,7 @@ void IoMem_lput(uaecptr addr, uae_u32 val)
 
 	addr &= 0x00ffffff;                           /* Use a 24 bit address */
 
-	LOG_TRACE(TRACE_IOMEM_WR, "IO write.l $%06x = $%08x\n", addr, val);
+	LOG_TRACE(TRACE_IOMEM_WR, "IO write.l $%06x = $%08x pc=%x\n", addr, val, M68000_GetPC());
 
 	if (addr < 0xff8000 || !regs.s)
 	{

@@ -1,8 +1,8 @@
 /*
   Hatari - hdc.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   This file contains definitions which are used for hardware-level
   harddrive emulation.
@@ -45,7 +45,7 @@
 #define HD_REQSENS_OPCODE   0x20              /* Opcode not supported */
 #define HD_REQSENS_INVADDR  0x21              /* Invalid block address */
 #define HD_REQSENS_INVARG   0x24              /* Invalid argument */
-#define HD_REQSENS_NODRIVE  0x25              /* Invalid drive */
+#define HD_REQSENS_INVLUN   0x25              /* Invalid LUN */
 
 #define ACSI_EMU_ON        bAcsiEmuOn         /* Do we have HDC emulation? */
 
@@ -58,8 +58,10 @@ extern bool bAcsiEmuOn;
 extern bool HDC_Init(void);
 extern void HDC_UnInit(void);
 extern void HDC_ResetCommandStatus(void);
-extern short int HDC_GetCommandStatus(void);
+extern short int HDC_ReadCommandByte(int addr);
 extern short int HDC_GetSectorCount(void);
-extern void HDC_WriteCommandPacket(void);
+extern void HDC_WriteCommandByte(int addr, Uint8 byte);
+
+void Ncr5380_Reset(void);
 
 #endif /* HATARI_HDC_H */

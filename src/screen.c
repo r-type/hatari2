@@ -1,8 +1,8 @@
 /*
   Hatari - screen.c
 
-  This file is distributed under the GNU Public License, version 2 or at your
-  option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   This code converts a 1/2/4 plane ST format screen to either 8, 16 or 32-bit PC
   format. An awful lot of processing is needed to do this conversion - we
@@ -380,7 +380,7 @@ static void Screen_SetResolution(void)
 		/* Statusbar height for doubled screen size */
 		SBarHeight = Statusbar_GetHeightForSize(640, 400);
 
-		Resolution_GetLimits(&maxW, &maxH, &BitCount);
+		Resolution_GetLimits(&maxW, &maxH, &BitCount, ConfigureParams.Screen.bKeepResolutionST);
 		
 		/* Zoom if necessary, factors used for scaling mouse motions */
 		if (STRes == ST_LOW_RES &&
@@ -438,7 +438,7 @@ static void Screen_SetResolution(void)
 			Height = maxH;
 			Width = maxW;
 		}
-		sdlVideoFlags  = SDL_HWSURFACE|SDL_FULLSCREEN|SDL_HWPALETTE/*|SDL_DOUBLEBUF*/;
+		sdlVideoFlags  = SDL_HWSURFACE|SDL_FULLSCREEN/*|SDL_DOUBLEBUF*/;
 		/* SDL_DOUBLEBUF helps avoiding tearing and can be faster on suitable HW,
 		 * but it doesn't work with partial screen updates done by the ST screen
 		 * update code or the Hatari GUI, so double buffering is disabled.
@@ -446,7 +446,11 @@ static void Screen_SetResolution(void)
 	}
 	else
 	{
-		sdlVideoFlags  = SDL_SWSURFACE|SDL_HWPALETTE;
+		sdlVideoFlags  = SDL_SWSURFACE;
+	}
+	if (BitCount <= 8)
+	{
+		sdlVideoFlags |= SDL_HWPALETTE;
 	}
 
 	/* Check if we really have to change the video mode: */
@@ -502,7 +506,7 @@ static void Screen_SetResolution(void)
 		if (sdlscrn->format->BitsPerPixel == 8)
 			Screen_Handle8BitPalettes();    /* Initialize new 8 bit palette */
 		else
-			Screen_SetupRGBTable();         /* Create color convertion table */
+			Screen_SetupRGBTable();         /* Create color conversion table */
 
 		Statusbar_Init(sdlscrn);
 		
@@ -536,8 +540,8 @@ void Screen_Init(void)
 	/* Allocate previous screen check workspace. We are going to double-buffer a double-buffered screen. Oh. */
 	for (i = 0; i < NUM_FRAMEBUFFERS; i++)
 	{
-		FrameBuffers[i].pSTScreen = malloc(((MAX_VDI_WIDTH*MAX_VDI_PLANES)/8)*MAX_VDI_HEIGHT);
-		FrameBuffers[i].pSTScreenCopy = malloc(((MAX_VDI_WIDTH*MAX_VDI_PLANES)/8)*MAX_VDI_HEIGHT);
+		FrameBuffers[i].pSTScreen = malloc(MAX_VDI_BYTES);
+		FrameBuffers[i].pSTScreenCopy = malloc(MAX_VDI_BYTES);
 		if (!FrameBuffers[i].pSTScreen || !FrameBuffers[i].pSTScreenCopy)
 		{
 			fprintf(stderr, "Failed to allocate frame buffer memory.\n");

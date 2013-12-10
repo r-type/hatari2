@@ -1,8 +1,8 @@
 /*
   Hatari - videl.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Falcon Videl emulation. The Videl is the graphics shifter chip of the Falcon.
   It supports free programmable resolutions with 1, 2, 4, 8 or 16 bits per
@@ -168,8 +168,19 @@ void VIDEL_MemorySnapShot_Capture(bool bSave)
 /**
  * Monitor write access to ST/E color palette registers
  */
-void VIDEL_ColorRegsWrite(void)
+void VIDEL_StColorRegsWrite(void)
 {
+	videl.hostColorsSync = false;
+}
+
+/**
+ * Monitor write access to Falcon color palette registers
+ */
+void VIDEL_FalconColorRegsWrite(void)
+{
+	uint32_t color = IoMem_ReadLong(IoAccessBaseAddress & ~3);
+	color &= 0xfcfc00fc;	/* Unused bits have to be set to 0 */
+	IoMem_WriteLong(IoAccessBaseAddress & ~3, color);
 	videl.hostColorsSync = false;
 }
 
@@ -250,9 +261,8 @@ void VIDEL_ScreenCounter_WriteByte(void)
  */
 void VIDEL_LineOffset_WriteWord(void)
 {
-	Uint16 lineOffset = IoMem_ReadWord(0xff820e);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff820e Line Offset write: 0x%04x\n", lineOffset);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff820e Line Offset write: 0x%04x\n",
+	          IoMem_ReadWord(0xff820e));
 }
 
 /**
@@ -262,9 +272,8 @@ void VIDEL_LineOffset_WriteWord(void)
  */
 void VIDEL_Line_Width_WriteWord(void)
 {
-	Uint16 lineWidth = IoMem_ReadWord(0xff8210);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8210 Line Width write: 0x%04x\n", lineWidth);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8210 Line Width write: 0x%04x\n",
+	          IoMem_ReadWord(0xff8210));
 }
 
 /**
@@ -274,17 +283,14 @@ void VIDEL_Line_Width_WriteWord(void)
  */
 void VIDEL_ScreenBase_WriteByte(void)
 {
-	Uint32 screenBase;
-	
 	if ((IoAccessCurrentAddress == 0xff8201) || (IoAccessCurrentAddress == 0xff8203)) {
 		/* Reset screen base low register */
 		IoMem[0xff820d] = 0;
 	}
-	
-	screenBase = (IoMem[0xff8201]<<16)+(IoMem[0xff8203]<<8)+IoMem[0xff820d];
 
-	LOG_TRACE(TRACE_VIDEL, "Videl : $%04x Screen base write: 0x%02x\t (screen: 0x%04x)\n", 
-						IoAccessCurrentAddress, IoMem[IoAccessCurrentAddress], screenBase);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $%04x Screen base write: 0x%02x\t (screen: 0x%04x)\n",
+	          IoAccessCurrentAddress, IoMem[IoAccessCurrentAddress],
+	          (IoMem[0xff8201]<<16) + (IoMem[0xff8203]<<8) + IoMem[0xff820d]);
 }
 
 /**
@@ -361,8 +367,8 @@ void VIDEL_ST_ShiftModeWriteByte(void)
  */
 void VIDEL_HorScroll64_WriteByte(void)
 {
-	Uint8 horScroll64 = IoMem_ReadWord(0xff8264);
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8264 Horizontal scroll 64 write: 0x%02x\n", horScroll64);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8264 Horizontal scroll 64 write: 0x%02x\n",
+	          IoMem_ReadByte(0xff8264));
 }
 
 /**
@@ -374,8 +380,8 @@ void VIDEL_HorScroll64_WriteByte(void)
  */
 void VIDEL_HorScroll65_WriteByte(void)
 {
-	Uint8 horScroll65 = IoMem_ReadWord(0xff8265);
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8265 Horizontal scroll 65 write: 0x%02x\n", horScroll65);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8265 Horizontal scroll 65 write: 0x%02x\n",
+	          IoMem_ReadByte(0xff8265));
 }
 
 /**
@@ -400,9 +406,8 @@ void VIDEL_HorScroll65_WriteByte(void)
  */
 void VIDEL_Falcon_ShiftMode_WriteWord(void)
 {
-	Uint16 falc_shiftMode = IoMem_ReadWord(0xff8266);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8266 Falcon Shift Mode (SPSHIFT) write: 0x%04x\n", falc_shiftMode);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8266 Falcon Shift Mode (SPSHIFT) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff8266));
 
 	videl.bUseSTShifter = false;
 }
@@ -412,9 +417,8 @@ void VIDEL_Falcon_ShiftMode_WriteWord(void)
  */
 void VIDEL_HHC_WriteWord(void)
 {
-	Uint16 hhc = IoMem_ReadWord(0xff8280);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8280 Horizontal Hold Counter (HHC) write: 0x%04x\n", hhc);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8280 Horizontal Hold Counter (HHC) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff8280));
 }
 
 /**
@@ -422,9 +426,8 @@ void VIDEL_HHC_WriteWord(void)
  */
 void VIDEL_HHT_WriteWord(void)
 {
-	Uint16 hht = IoMem_ReadWord(0xff8282);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8282 Horizontal Hold Timer (HHT) write: 0x%04x\n", hht);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8282 Horizontal Hold Timer (HHT) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff8282));
 }
 
 /**
@@ -432,9 +435,8 @@ void VIDEL_HHT_WriteWord(void)
  */
 void VIDEL_HBB_WriteWord(void)
 {
-	Uint16 hbb = IoMem_ReadWord(0xff8284);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8284 Horizontal Border Begin (HBB) write: 0x%04x\n", hbb);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8284 Horizontal Border Begin (HBB) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff8284));
 }
 
 /**
@@ -442,9 +444,8 @@ void VIDEL_HBB_WriteWord(void)
  */
 void VIDEL_HBE_WriteWord(void)
 {
-	Uint16 hbe = IoMem_ReadWord(0xff8286);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8286 Horizontal Border End (HBE) write: 0x%04x\n", hbe);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8286 Horizontal Border End (HBE) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff8286));
 }
 
 /**
@@ -455,9 +456,8 @@ void VIDEL_HBE_WriteWord(void)
  */
 void VIDEL_HDB_WriteWord(void)
 {
-	Uint16 hdb = IoMem_ReadWord(0xff8288);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8288 Horizontal Display Begin (HDB) write: 0x%04x\n", hdb);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8288 Horizontal Display Begin (HDB) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff8288));
 }
 
 /**
@@ -465,9 +465,8 @@ void VIDEL_HDB_WriteWord(void)
  */
 void VIDEL_HDE_WriteWord(void)
 {
-	Uint16 hde = IoMem_ReadWord(0xff828a);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff828a Horizontal Display End (HDE) write: 0x%04x\n", hde);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff828a Horizontal Display End (HDE) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff828a));
 }
 
 /**
@@ -475,9 +474,8 @@ void VIDEL_HDE_WriteWord(void)
  */
 void VIDEL_HSS_WriteWord(void)
 {
-	Uint16 hss = IoMem_ReadWord(0xff828c);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff828c Horizontal SS (HSS) write: 0x%04x\n", hss);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff828c Horizontal SS (HSS) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff828c));
 }
 
 /**
@@ -485,9 +483,8 @@ void VIDEL_HSS_WriteWord(void)
  */
 void VIDEL_HFS_WriteWord(void)
 {
-	Uint16 hfs = IoMem_ReadWord(0xff828e);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff828e Horizontal FS (HFS) write: 0x%04x\n", hfs);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff828e Horizontal FS (HFS) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff828e));
 }
 
 /**
@@ -495,9 +492,8 @@ void VIDEL_HFS_WriteWord(void)
  */
 void VIDEL_HEE_WriteWord(void)
 {
-	Uint16 hee = IoMem_ReadWord(0xff8290);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8290 Horizontal EE (HEE) write: 0x%04x\n", hee);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff8290 Horizontal EE (HEE) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff8290));
 }
 
 /**
@@ -514,9 +510,8 @@ void VIDEL_VFC_ReadWord(void)
  */
 void VIDEL_VFT_WriteWord(void)
 {
-	Uint16 vft = IoMem_ReadWord(0xff82a2);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82a2 Vertical Frequency Timer (VFT) write: 0x%04x\n", vft);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82a2 Vertical Frequency Timer (VFT) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff82a2));
 }
 
 /**
@@ -524,9 +519,8 @@ void VIDEL_VFT_WriteWord(void)
  */
 void VIDEL_VBB_WriteWord(void)
 {
-	Uint16 vbb = IoMem_ReadWord(0xff82a4);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82a4 Vertical Border Begin (VBB) write: 0x%04x\n", vbb);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82a4 Vertical Border Begin (VBB) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff82a4));
 }
 
 /**
@@ -534,9 +528,8 @@ void VIDEL_VBB_WriteWord(void)
  */
 void VIDEL_VBE_WriteWord(void)
 {
-	Uint16 vbe = IoMem_ReadWord(0xff82a6);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82a6 Vertical Border End (VBE) write: 0x%04x\n", vbe);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82a6 Vertical Border End (VBE) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff82a6));
 }
 
 /**
@@ -544,9 +537,8 @@ void VIDEL_VBE_WriteWord(void)
  */
 void VIDEL_VDB_WriteWord(void)
 {
-	Uint16 vdb = IoMem_ReadWord(0xff82a8);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82a8 Vertical Display Begin (VDB) write: 0x%04x\n", vdb);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82a8 Vertical Display Begin (VDB) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff82a8));
 }
 
 /**
@@ -554,9 +546,8 @@ void VIDEL_VDB_WriteWord(void)
  */
 void VIDEL_VDE_WriteWord(void)
 {
-	Uint16 vde = IoMem_ReadWord(0xff82aa);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82aa Vertical Display End (VDE) write: 0x%04x\n", vde);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82aa Vertical Display End (VDE) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff82aa));
 }
 
 /**
@@ -564,9 +555,8 @@ void VIDEL_VDE_WriteWord(void)
  */
 void VIDEL_VSS_WriteWord(void)
 {
-	Uint16 vss = IoMem_ReadWord(0xff82ac);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82ac Vertical SS (VSS) write: 0x%04x\n", vss);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82ac Vertical SS (VSS) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff82ac));
 }
 
 /**
@@ -574,9 +564,8 @@ void VIDEL_VSS_WriteWord(void)
  */
 void VIDEL_VCO_WriteWord(void)
 {
-	Uint16 vco = IoMem_ReadWord(0xff82c0);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82c0 Video control (VCO) write: 0x%04x\n", vco);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82c0 Video control (VCO) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff82c0));
 }
 
 /**
@@ -584,9 +573,8 @@ void VIDEL_VCO_WriteWord(void)
  */
 void VIDEL_VMD_WriteWord(void)
 {
-	Uint16 vdm = IoMem_ReadWord(0xff82c2);
-
-	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82c2 Video Mode (VDM) write: 0x%04x\n", vdm);
+	LOG_TRACE(TRACE_VIDEL, "Videl : $ff82c2 Video Mode (VDM) write: 0x%04x\n",
+	          IoMem_ReadWord(0xff82c2));
 }
 
 
@@ -648,6 +636,10 @@ static Uint16 VIDEL_getScreenBpp(void)
  */
 static int VIDEL_getScreenWidth(void)
 {
+	Uint16 hbb, hbe, hdb, hde, vdm, hht;
+	Uint16 cycPerPixel, divider;
+	Sint16 hdb_offset, hde_offset;
+	Sint16 leftBorder, rightBorder;
 	Uint16 bpp = VIDEL_getScreenBpp();
 
 	/* X Size of the Display area */
@@ -669,16 +661,12 @@ static int VIDEL_getScreenWidth(void)
 		return videl.XSize;
 	}
 
-	Uint16 hbb = IoMem_ReadWord(0xff8284) & 0x01ff;
-	Uint16 hbe = IoMem_ReadWord(0xff8286) & 0x01ff;  
-	Uint16 hdb = IoMem_ReadWord(0xff8288) & 0x01ff;
-	Uint16 hde = IoMem_ReadWord(0xff828a) & 0x01ff;
-	Uint16 vdm = IoMem_ReadWord(0xff82c2) & 0xc;
-	Uint16 hht = IoMem_ReadWord(0xff8282) & 0x1ff;
-
-	Uint16 cycPerPixel, divider;
-	Sint16 hdb_offset, hde_offset;
-	Sint16 leftBorder, rightBorder;
+	hbb = IoMem_ReadWord(0xff8284) & 0x01ff;
+	hbe = IoMem_ReadWord(0xff8286) & 0x01ff;
+	hdb = IoMem_ReadWord(0xff8288) & 0x01ff;
+	hde = IoMem_ReadWord(0xff828a) & 0x01ff;
+	vdm = IoMem_ReadWord(0xff82c2) & 0xc;
+	hht = IoMem_ReadWord(0xff8282) & 0x1ff;
 
 	/* Compute cycles per pixel */
 	if (vdm == 0)
@@ -779,7 +767,13 @@ static int VIDEL_getScreenHeight(void)
 	}
 
 	/* Y Size of the Display area */
-	videl.YSize = vde - vdb;
+	if (vde >= vdb) {
+		videl.YSize = vde - vdb;
+	}
+	else {
+		LOG_TRACE(TRACE_VIDEL, "WARNING: vde=0x%x is less than vdb=0x%x\n",
+		          vde, vdb);
+	}
 
 	/* If the user disabled the borders display from the gui, we suppress them */
 	if (ConfigureParams.Screen.bAllowOverscan == 0) {
@@ -798,7 +792,7 @@ static int VIDEL_getScreenHeight(void)
 		videl.upperBorderSize >>= 1;
 		videl.lowerBorderSize >>= 1;
 	}
-	
+
 	return videl.upperBorderSize + videl.YSize + videl.lowerBorderSize;
 }
 
@@ -908,8 +902,6 @@ void VIDEL_ZoomModeChanged(void)
 
 bool VIDEL_renderScreen(void)
 {
-	videl.videoBaseAddr = VIDEL_getVideoramAddress(); // Todo: to be removed when all code is in Videl
-
 	/* Atari screen infos */
 	int vw	 = VIDEL_getScreenWidth();
 	int vh	 = VIDEL_getScreenHeight();
@@ -917,8 +909,11 @@ bool VIDEL_renderScreen(void)
 
 	int lineoffset = IoMem_ReadWord(0xff820e) & 0x01ff; /* 9 bits */
 	int linewidth = IoMem_ReadWord(0xff8210) & 0x03ff;  /* 10 bits */
+	int nextline;
 
 	bool change = false;
+
+	videl.videoBaseAddr = VIDEL_getVideoramAddress(); // Todo: to be removed when all code is in Videl
 
 	if (vw > 0 && vw != videl.save_scrWidth) {
 		LOG_TRACE(TRACE_VIDEL, "Videl : width change from %d to %d\n", videl.save_scrWidth, vw);
@@ -959,7 +954,7 @@ bool VIDEL_renderScreen(void)
 	   for me at the moment (and my experiments on the Falcon don't help
 	   me).
 	*/
-	int nextline = linewidth + lineoffset;
+	nextline = linewidth + lineoffset;
 
 	if ((vw<32) || (vh<32))
 		return false;
@@ -1118,10 +1113,13 @@ void VIDEL_ConvertScreenNoZoom(int vw, int vh, int vbpp, int nextline)
 	int h, w, j;
 
 	Uint16 *fvram = (Uint16 *) Atari2HostAddr(videl.videoBaseAddr);
+	Uint16 *fvram_line;
 	Uint8 *hvram = HostScreen_getVideoramAddress();
 	SDL_PixelFormat *scrfmt = HostScreen_getFormat();
 
 	Uint16 lowBorderSize, rightBorderSize;
+	int scrwidth, scrheight;
+	int vw_clip, vh_clip;
 
 	int hscrolloffset = IoMem_ReadByte(0xff8265) & 0x0f;
 
@@ -1143,10 +1141,10 @@ void VIDEL_ConvertScreenNoZoom(int vw, int vh, int vbpp, int nextline)
 	}
 
 	/* Clip to SDL_Surface dimensions */
-	int scrwidth = HostScreen_getWidth();
-	int scrheight = HostScreen_getHeight();
-	int vw_clip = vw;
-	int vh_clip = vh;
+	scrwidth = HostScreen_getWidth();
+	scrheight = HostScreen_getHeight();
+	vw_clip = vw;
+	vh_clip = vh;
 	if (vw>scrwidth) vw_clip = scrwidth;
 	if (vh>scrheight) vh_clip = scrheight;	
 
@@ -1192,7 +1190,7 @@ void VIDEL_ConvertScreenNoZoom(int vw, int vh, int vbpp, int nextline)
 	hvram += ((scrheight-vh_clip)>>1)*scrpitch;
 	hvram += ((scrwidth-vw_clip)>>1)*HostScreen_getBpp();
 
-	Uint16 *fvram_line = fvram;
+	fvram_line = fvram;
 	scrwidth = videl.leftBorderSize + vw + videl.rightBorderSize;
 
 	/* render the graphic area */
@@ -1432,7 +1430,9 @@ void VIDEL_ConvertScreenNoZoom(int vw, int vh, int vbpp, int nextline)
 				/* Render the graphical area */
 				for (h = 0; h < vh; h++) {
 					Uint16 *hvram_column = hvram_line;
-
+#if SDL_BYTEORDER != SDL_BIG_ENDIAN
+					Uint16 *fvram_column;
+#endif
 					/* Left border first */
 					VIDEL_memset_uint16 (hvram_column, HostScreen_getPaletteColor(0), videl.leftBorderSize);
 					hvram_column += videl.leftBorderSize;
@@ -1444,7 +1444,7 @@ void VIDEL_ConvertScreenNoZoom(int vw, int vh, int vbpp, int nextline)
 					memcpy(hvram_column, fvram_line, vw<<1);
 					hvram_column += vw<<1;
 #else
-					Uint16 *fvram_column = fvram_line;
+					fvram_column = fvram_line;
 					/* Graphical area */
 					for (w = 0; w < vw; w++)
 						*hvram_column ++ = SDL_SwapBE16(*fvram_column++);
@@ -1518,6 +1518,9 @@ void VIDEL_ConvertScreenZoom(int vw, int vh, int vbpp, int nextline)
 
 	int coefx = 1;
 	int coefy = 1;
+	int scrpitch, scrwidth, scrheight, scrbpp, hscrolloffset;
+	Uint8 *hvram;
+	SDL_PixelFormat *scrfmt;
 
 	/* If emulated computer is the TT, we use the same rendering for display, but without the borders */
 	if (ConfigureParams.System.nMachineType == MACHINE_TT) {
@@ -1533,14 +1536,14 @@ void VIDEL_ConvertScreenZoom(int vw, int vh, int vbpp, int nextline)
 	}
 
 	/* Host screen infos */
-	int scrpitch = HostScreen_getPitch();
-	int scrwidth = HostScreen_getWidth();
-	int scrheight = HostScreen_getHeight();
-	int scrbpp = HostScreen_getBpp();
-	SDL_PixelFormat *scrfmt = HostScreen_getFormat();
-	Uint8 *hvram = (Uint8 *) HostScreen_getVideoramAddress();
+	scrpitch = HostScreen_getPitch();
+	scrwidth = HostScreen_getWidth();
+	scrheight = HostScreen_getHeight();
+	scrbpp = HostScreen_getBpp();
+	scrfmt = HostScreen_getFormat();
+	hvram = (Uint8 *) HostScreen_getVideoramAddress();
 
-	int hscrolloffset = IoMem_ReadByte(0xff8265) & 0x0f;
+	hscrolloffset = IoMem_ReadByte(0xff8265) & 0x0f;
 
 	/* Horizontal scroll register set? */
 	if (hscrolloffset) {

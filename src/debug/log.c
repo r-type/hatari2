@@ -1,8 +1,8 @@
 /*
  * Hatari - log.c
  *
- * This file is distributed under the GNU Public License, version 2 or at
- * your option any later version. Read the file gpl.txt for details.
+ * This file is distributed under the GNU General Public License, version 2
+ * or at your option any later version. Read the file gpl.txt for details.
  *
  * Logger functions.
  *
@@ -67,6 +67,8 @@ TraceOptions[] = {
 
 	{ TRACE_FDC		 , "fdc" } ,
 
+	{ TRACE_ACIA		 , "acia" } ,
+
 	{ TRACE_IKBD_CMDS	 , "ikbd_cmds" } ,
 	{ TRACE_IKBD_ACIA	 , "ikbd_acia" } ,
 	{ TRACE_IKBD_EXEC	 , "ikbd_exec" } ,
@@ -103,6 +105,8 @@ TraceOptions[] = {
 
 	{ TRACE_DSP_SYMBOLS	 , "dsp_symbols" },
 	{ TRACE_CPU_SYMBOLS	 , "cpu_symbols" },
+
+	{ TRACE_NVRAM  	         , "nvram" } ,
 
 	{ TRACE_ALL		 , "all" }
 };

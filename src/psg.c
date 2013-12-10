@@ -1,8 +1,8 @@
 /*
   Hatari - psg.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Programmable Sound Generator (YM-2149) - PSG
 
@@ -26,7 +26,7 @@
 /* 2008/07/27	[NP]	Better separation between accesses to the YM hardware registers	*/
 /*			and the sound rendering routines. Use Sound_WriteReg() to pass	*/
 /*			all writes to the sound rendering functions. This allows to	*/
-/*			have sound.c independant of psg.c (to ease replacement of	*/
+/*			have sound.c independent of psg.c (to ease replacement of	*/
 /*			sound.c	by another rendering method).				*/
 /* 2008/08/11	[NP]	Set drive leds.							*/
 /* 2008/10/16	[NP]	When writing to $ff8800, register select should not be masked	*/
@@ -127,7 +127,7 @@ const char PSG_fileid[] = "Hatari psg.c : " __DATE__ " " __TIME__;
 #include "video.h"
 #include "statusbar.h"
 #include "mfp.h"
-#include "floppy.h"
+#include "fdc.h"
 
 
 Uint8 PSGRegisterSelect;        /* Write to 0xff8800 sets the register number used in read/write accesses */
@@ -320,10 +320,10 @@ void PSG_Set_DataRegister(Uint8 val)
 				/* Seems like we want to print something... */
 				Printer_TransferByteTo(PSGRegisters[PSG_REG_IO_PORTB]);
 				/* Initiate a possible GPIP0 Printer BUSY interrupt */
-				MFP_InputOnChannel(MFP_GPIP_0_BIT,MFP_IERB,&MFP_IPRB);
+				MFP_InputOnChannel ( MFP_INT_GPIP0 , 0 );
 				/* Initiate a possible GPIP1 Falcon ACK interrupt */
 				if (ConfigureParams.System.nMachineType == MACHINE_FALCON)
-					MFP_InputOnChannel(MFP_GPIP_1_BIT,MFP_IERB,&MFP_IPRB);
+					MFP_InputOnChannel ( MFP_INT_GPIP1 , 0 );
 			}
 		}
 		LastStrobe = PSGRegisters[PSG_REG_IO_PORTA]&(1<<5);
@@ -332,25 +332,25 @@ void PSG_Set_DataRegister(Uint8 val)
 		if ( (PSGRegisters[PSG_REG_IO_PORTA]&(1<<1)) == 0 )
 		{
 			/* floppy drive A is ON */
-			Statusbar_SetFloppyLed(DRIVE_LED_A, true);
+			Statusbar_SetFloppyLed(DRIVE_LED_A, LED_STATE_ON);
 		}
 		else
 		{
-			Statusbar_SetFloppyLed(DRIVE_LED_A, false);
+			Statusbar_SetFloppyLed(DRIVE_LED_A, LED_STATE_OFF);
 		}
 		if ( (PSGRegisters[PSG_REG_IO_PORTA]&(1<<2)) == 0 )
 		{
 			/* floppy drive B is ON */
-			Statusbar_SetFloppyLed(DRIVE_LED_B, true);
+			Statusbar_SetFloppyLed(DRIVE_LED_B, LED_STATE_ON);
 		}
 		else
 		{
-			Statusbar_SetFloppyLed(DRIVE_LED_B, false);
+			Statusbar_SetFloppyLed(DRIVE_LED_B, LED_STATE_OFF);
 		}
 
 		/* Report a possible drive/side change */
-		Floppy_SetDriveSide ( val_old & 7 , PSGRegisters[PSG_REG_IO_PORTA] & 7 );
-		
+		FDC_SetDriveSide ( val_old & 7 , PSGRegisters[PSG_REG_IO_PORTA] & 7 );
+
 		/* Bit 3 - Centronics as input */
 		if(PSGRegisters[PSG_REG_IO_PORTA]&(1<<3))
 		{

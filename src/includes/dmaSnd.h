@@ -1,8 +1,8 @@
 /*
   Hatari - dmaSnd.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 
 #ifndef HATARI_DMASND_H
@@ -14,7 +14,6 @@
 
 extern Uint16 nDmaSoundControl;
 
-extern void DmaSnd_Init(void);
 extern void DmaSnd_Reset(bool bCold);
 extern void DmaSnd_MemorySnapShot_Capture(bool bSave);
 extern void DmaSnd_GenerateSamples(int nMixBufIdx, int nSamplesToGenerate);

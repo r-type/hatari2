@@ -1,8 +1,8 @@
 /*
   Hatari - file.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Common file access functions.
 */
@@ -28,7 +28,7 @@ const char File_fileid[] = "Hatari file.c : " __DATE__ " " __TIME__;
 #include "str.h"
 #include "zip.h"
 
-#if defined(WIN32)
+#ifndef HAVE_FTELLO
 #define ftello ftell
 #endif
 
@@ -172,6 +172,7 @@ Uint8 *File_Read(const char *pszFileName, long *pFileSize, const char * const pp
 	if (!filepath)
 		filepath = strdup(pszFileName);
 
+#if HAVE_LIBZ
 	/* Is it a gzipped file? */
 	if (File_DoesFileExtensionMatch(filepath, ".gz"))
 	{
@@ -184,7 +185,12 @@ Uint8 *File_Read(const char *pszFileName, long *pFileSize, const char * const pp
 			do
 			{
 				/* Seek through the file until we hit the end... */
-				gzseek(hGzFile, 1024, SEEK_CUR);
+				char tmp[1024];
+				if (gzread(hGzFile, tmp, sizeof(tmp)) < 0)
+				{
+					fprintf(stderr, "Failed to read gzip file!\n");
+					return NULL;
+				}
 			}
 			while (!gzeof(hGzFile));
 			FileSize = gztell(hGzFile);
@@ -203,6 +209,7 @@ Uint8 *File_Read(const char *pszFileName, long *pFileSize, const char * const pp
 		pFile = ZIP_ReadFirstFile(filepath, &FileSize, ppszExts);
 	}
 	else          /* It is a normal file */
+#endif  /* HAVE_LIBZ */
 	{
 		FILE *hDiskFile;
 		/* Open and read normal file */
@@ -247,6 +254,7 @@ bool File_Save(const char *pszFileName, const Uint8 *pAddress, size_t Size, bool
 			return false;
 	}
 
+#if HAVE_LIBZ
 	/* Normal file or gzipped file? */
 	if (File_DoesFileExtensionMatch(pszFileName, ".gz"))
 	{
@@ -263,6 +271,7 @@ bool File_Save(const char *pszFileName, const Uint8 *pAddress, size_t Size, bool
 		}
 	}
 	else
+#endif  /* HAVE_LIBZ */
 	{
 		FILE *hDiskFile;
 		/* Create a normal file: */

@@ -1,8 +1,8 @@
 /*
   Hatari - ide.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   This is where we intercept read/writes to/from the IDE controller hardware.
 */
@@ -506,7 +506,7 @@ static int bdrv_read(BlockDriverState *bs, int64_t sector_num,
 
 	len = nb_sectors * 512;
 
-	fseek(bs->fhndl, sector_num*512, SEEK_SET);
+	fseeko(bs->fhndl, sector_num*512, SEEK_SET);
 	ret = fread(buf, 1, len, bs->fhndl);
 	if (ret != len)
 	{
@@ -540,7 +540,7 @@ static int bdrv_write(BlockDriverState *bs, int64_t sector_num,
 
 	len = nb_sectors * 512;
 
-	fseek(bs->fhndl, sector_num*512, SEEK_SET);
+	fseeko(bs->fhndl, sector_num*512, SEEK_SET);
 	ret = fwrite(buf, 1, len, bs->fhndl);
 	if (ret != len)
 	{
@@ -1122,7 +1122,7 @@ static inline void ide_set_irq(IDEState *s)
 	if (!(s->cmd & IDE_CMD_DISABLE_IRQ))
 	{
 		/* raise IRQ */
-		MFP_InputOnChannel(MFP_FDCHDC_BIT, MFP_IERB, &MFP_IPRB);
+		MFP_InputOnChannel ( MFP_INT_FDCHDC , 0 );
 		MFP_GPIP &= ~0x20;
 	}
 }
@@ -2033,7 +2033,7 @@ static void ide_ioport_write(void *opaque, uint32_t addr, uint32_t val)
 		printf("IDE: CMD=%02x\n", val);
 #endif
 		s = ide_if->cur_drive;
-		/* ignore commands to non existant slave */
+		/* ignore commands to non existent slave */
 		if (s != ide_if && !s->bs)
 		{
 			fprintf(stderr,"IDE: CMD to non-existant slave!\n");

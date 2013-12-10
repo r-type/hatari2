@@ -1,8 +1,8 @@
 /*
   Hatari - ioMemTabFalcon.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Table with hardware IO handlers for the Falcon.
 */
@@ -10,7 +10,7 @@ const char IoMemTabFalc_fileid[] = "Hatari ioMemTabFalcon.c : " __DATE__ " " __T
 
 #include "main.h"
 #include "fdc.h"
-#include "ikbd.h"
+#include "acia.h"
 #include "ioMem.h"
 #include "ioMemTables.h"
 #include "m68000.h"
@@ -25,6 +25,8 @@ const char IoMemTabFalc_fileid[] = "Hatari ioMemTabFalcon.c : " __DATE__ " " __T
 #include "blitter.h"
 #include "crossbar.h"
 #include "falcon/videl.h"
+#include "configuration.h"
+#include "statusbar.h"
 #if ENABLE_DSP_EMU
 #include "falcon/dsp.h"
 #endif
@@ -120,11 +122,14 @@ static void IoMemTabFalcon_BusCtrl_WriteByte(void)
 	if ((busCtrl & 0x1) == 1) {
 		/* 16 Mhz bus for 68030 */
 		nCpuFreqShift = 1;
+		ConfigureParams.System.nCpuFreq = 16;
 	}
 	else {
 		/* 8 Mhz bus for 68030 */
 		nCpuFreqShift = 0;
+		ConfigureParams.System.nCpuFreq = 8;
 	}
+	Statusbar_UpdateInfo();							/* Update clock speed in the status bar */
 }
 
 
@@ -158,7 +163,7 @@ const INTERCEPT_ACCESS_FUNC IoMemTable_Falcon[] =
 	{ 0xff820e, SIZE_WORD, IoMem_ReadWithoutInterception, VIDEL_LineOffset_WriteWord },     /* Falcon line offset */
 	{ 0xff8210, SIZE_WORD, IoMem_ReadWithoutInterception, VIDEL_Line_Width_WriteWord },     /* Falcon line width */
 	{ 0xff8212, 46       , IoMem_VoidRead, IoMem_VoidWrite },                               /* No bus error here */
-	{ 0xff8240, 32       , IoMem_ReadWithoutInterception, VIDEL_ColorRegsWrite },           /* ST color regs */
+	{ 0xff8240, 32       , IoMem_ReadWithoutInterception, VIDEL_StColorRegsWrite },         /* ST color regs */
 	{ 0xff8260, SIZE_BYTE, IoMem_ReadWithoutInterception, VIDEL_ST_ShiftModeWriteByte },
 	{ 0xff8261, 3        , IoMem_VoidRead_00, IoMem_VoidWrite },                            /* No bus errors here : return 0 not ff */
 	{ 0xff8264, SIZE_BYTE, IoMem_ReadWithoutInterception, VIDEL_HorScroll64_WriteByte },    /* Falcon horizontal fine scrolling high ? */
@@ -228,16 +233,15 @@ const INTERCEPT_ACCESS_FUNC IoMemTable_Falcon[] =
 	{ 0xff8922, SIZE_WORD, IoMem_VoidRead_00, IoMem_VoidWrite },                                  /* Microwire data - n/a on Falcon, alwayes read 0 */
 	{ 0xff8924, SIZE_WORD, IoMem_ReadWithoutInterception, Crossbar_Microwire_WriteWord },         /* Microwire mask - n/a on Falcon, see crossbar.c */
 
-	{ 0xff8930, SIZE_WORD, IoMem_ReadWithoutInterception, Crossbar_SrcControler_WriteWord },   /* Crossbar source controler */
-	{ 0xff8932, SIZE_WORD, IoMem_ReadWithoutInterception, Crossbar_DstControler_WriteWord },   /* Crossbar destination controler */
+	{ 0xff8930, SIZE_WORD, IoMem_ReadWithoutInterception, Crossbar_SrcControler_WriteWord },   /* Crossbar source controller */
+	{ 0xff8932, SIZE_WORD, IoMem_ReadWithoutInterception, Crossbar_DstControler_WriteWord },   /* Crossbar destination controller */
 	{ 0xff8934, SIZE_BYTE, IoMem_ReadWithoutInterception, Crossbar_FreqDivExt_WriteByte },     /* External clock divider */
 	{ 0xff8935, SIZE_BYTE, IoMem_ReadWithoutInterception, Crossbar_FreqDivInt_WriteByte },     /* Internal clock divider */
 	{ 0xff8936, SIZE_BYTE, IoMem_ReadWithoutInterception, Crossbar_TrackRecSelect_WriteByte }, /* Track record select */
 	{ 0xff8937, SIZE_BYTE, IoMem_ReadWithoutInterception, Crossbar_CodecInput_WriteByte },     /* CODEC input source from 16 bits adder */
 	{ 0xff8938, SIZE_BYTE, IoMem_ReadWithoutInterception, Crossbar_AdcInput_WriteByte },       /* ADC converter input for L+R channel */
 	{ 0xff8939, SIZE_BYTE, IoMem_ReadWithoutInterception, Crossbar_InputAmp_WriteByte },       /* Input amplifier (+1.5 dB step) */
-	{ 0xff893a, SIZE_BYTE, IoMem_ReadWithoutInterception, Crossbar_OutputReduct_WriteByte },   /* Output reduction (-1.5 dB step) */
-	{ 0xff893b, SIZE_BYTE, IoMem_ReadWithoutInterception, IoMem_WriteWithoutInterception },    /* No bus error here */
+	{ 0xff893a, SIZE_WORD, IoMem_ReadWithoutInterception, Crossbar_OutputReduct_WriteWord },   /* Output reduction (-1.5 dB step) */
 	{ 0xff893c, SIZE_WORD, IoMem_ReadWithoutInterception, Crossbar_CodecStatus_WriteWord },    /* CODEC status */
 	{ 0xff893e, SIZE_WORD, IoMem_ReadWithoutInterception, IoMem_WriteWithoutInterception },    /* No bus error here */
 	{ 0xff8940, SIZE_WORD, IoMem_ReadWithoutInterception, IoMem_WriteWithoutInterception },    /* GPx direction */
@@ -297,7 +301,7 @@ const INTERCEPT_ACCESS_FUNC IoMemTable_Falcon[] =
 	{ 0xff9220, SIZE_WORD, IoMem_VoidRead, IoMem_WriteWithoutInterception },          /* Lightpen X position */
 	{ 0xff9222, SIZE_WORD, IoMem_VoidRead, IoMem_WriteWithoutInterception },          /* Lightpen Y position */
 
-	{ 0xff9800, 0x400, IoMem_ReadWithoutInterception, VIDEL_ColorRegsWrite },            /* Falcon Videl palette */
+	{ 0xff9800, 0x400, IoMem_ReadWithoutInterception, VIDEL_FalconColorRegsWrite },   /* Falcon Videl palette */
 
 	{ 0xfffa00, SIZE_BYTE, IoMem_VoidRead, IoMem_VoidWrite },                               /* No bus error here */
 	{ 0xfffa01, SIZE_BYTE, MFP_GPIP_ReadByte, MFP_GPIP_WriteByte },
@@ -349,9 +353,9 @@ const INTERCEPT_ACCESS_FUNC IoMemTable_Falcon[] =
 	{ 0xfffa2e, SIZE_BYTE, IoMem_VoidRead, IoMem_VoidWrite },                               /* No bus error here */
 	{ 0xfffa2f, SIZE_BYTE, RS232_UDR_ReadByte, RS232_UDR_WriteByte },                     /* USART data register */
 
-	{ 0xfffc00, SIZE_BYTE, IKBD_KeyboardControl_ReadByte, IKBD_KeyboardControl_WriteByte },
+	{ 0xfffc00, SIZE_BYTE, ACIA_IKBD_Read_SR, ACIA_IKBD_Write_CR },
 	{ 0xfffc01, SIZE_BYTE, IoMem_VoidRead, IoMem_VoidWrite },                               /* No bus error here */
-	{ 0xfffc02, SIZE_BYTE, IKBD_KeyboardData_ReadByte, IKBD_KeyboardData_WriteByte },
+	{ 0xfffc02, SIZE_BYTE, ACIA_IKBD_Read_RDR, ACIA_IKBD_Write_TDR },
 	{ 0xfffc03, SIZE_BYTE, IoMem_VoidRead, IoMem_VoidWrite },                               /* No bus error here */
 	{ 0xfffc04, SIZE_BYTE, Midi_Control_ReadByte, Midi_Control_WriteByte },
 	{ 0xfffc05, SIZE_BYTE, IoMem_VoidRead, IoMem_VoidWrite },                               /* No bus error here */

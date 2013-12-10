@@ -32,8 +32,9 @@
 	X: memory is mapped at address $4000 in P memory 
 
 	The DSP external RAM is zero waitstate, but there is a penalty for
-	accessing it twice in a single instruction, because there is only 
-	one external data bus.
+	accessing it twice or more in a single instruction, because there is only 
+	one external data bus. The extra access costs 2 cycles penalty.
+
 	The internal buses are all separate (0 waitstate)
 
 
@@ -73,12 +74,12 @@
 
 #include <stdbool.h>
 
+#include "main.h"
 #include "dsp_core.h"
 #include "dsp_cpu.h"
 #include "dsp_disasm.h"
 #include "log.h"
-# include "main.h"
-
+#include "debugui.h"
 
 #define DSP_COUNT_IPS 0		/* Count instruction per seconds */
 
@@ -89,6 +90,14 @@
 
 #define SIGN_PLUS  0
 #define SIGN_MINUS 1
+
+/* Defines some bits values for access to external memory (X, Y, P) */
+/* These values will set/unset the corresponding bits in the variable access_to_ext_memory */
+/* to detect how many access to the external memory were done for a single instruction */
+#define EXT_X_MEMORY 0
+#define EXT_Y_MEMORY 1
+#define EXT_P_MEMORY 2
+
 
 /**********************************
  *	Variables
@@ -105,7 +114,7 @@ static Uint32 cur_inst_len;	/* =0:jump, >0:increment */
 static Uint32 cur_inst;
 
 /* Counts the number of access to the external memory for one instruction */
-static Uint16 nb_access_to_extMemory;
+static Uint16 access_to_ext_memory;
 
 /* DSP is in disasm mode ? */
 /* If yes, stack overflow, underflow and illegal instructions messages are not displayed */
@@ -705,7 +714,7 @@ void dsp56k_init_cpu(void)
 /**
  * Execute one instruction in trace mode at a given PC address.
  * */
-Uint16 dsp56k_execute_one_disasm_instruction(Uint16 pc)
+Uint16 dsp56k_execute_one_disasm_instruction(FILE *out, Uint16 pc)
 {
 	dsp_core_t *ptr1, *ptr2;
 	static dsp_core_t dsp_core_save;
@@ -729,7 +738,7 @@ Uint16 dsp56k_execute_one_disasm_instruction(Uint16 pc)
 	/* Execute instruction at address given in parameter to get the number of cycles it takes */
 	dsp56k_execute_instruction();
 
-	fprintf(stderr, "%s", dsp56k_getInstructionText());
+	fprintf(out, "%s", dsp56k_getInstructionText());
 
 	/* Restore DSP context after executing instruction */
 	memcpy(ptr1, ptr2, sizeof(dsp_core));
@@ -747,7 +756,7 @@ void dsp56k_execute_instruction(void)
 	disasm_memory_ptr = 0;
 
 	/* Initialise the number of access to the external memory for this instruction */
-	nb_access_to_extMemory = 0;
+	access_to_ext_memory = 0;
 	
 	/* Decode and execute current instruction */
 	cur_inst = read_memory_p(dsp_core.pc);
@@ -779,9 +788,16 @@ void dsp56k_execute_instruction(void)
 	}
 
 	/* Add the waitstate due to external memory access */
-	if (nb_access_to_extMemory > 1)
-		dsp_core.instr_cycle += nb_access_to_extMemory - 1;
-	
+	/* (2 extra cycles per extra access to the external memory after the first one */
+	if (access_to_ext_memory != 0) {
+		value = access_to_ext_memory & 1;
+		value += (access_to_ext_memory & 2) >> 1;
+		value += (access_to_ext_memory & 4) >> 2;
+		
+		if (value > 1)
+			dsp_core.instr_cycle += (value - 1) * 2;
+	}
+
 	/* Disasm current instruction ? (trace mode only) */
 	if (LOG_TRACE_LEVEL(TRACE_DSP_DISASM)) {
 		/* Display only when DSP is called in trace mode */
@@ -1184,8 +1200,8 @@ static inline Uint32 read_memory_p(Uint16 address)
 		return dsp_core.ramint[DSP_SPACE_P][address] & BITMASK(24);
 	}
 
-	/* Access to the external memory */
-	nb_access_to_extMemory ++;
+	/* Access to the external P memory */
+	access_to_ext_memory |= 1 << EXT_P_MEMORY;
 
 	/* External RAM, mask address to available ram size */
 	return dsp_core.ramext[address & (DSP_RAMSIZE-1)] & BITMASK(24);
@@ -1226,15 +1242,21 @@ static Uint32 read_memory(int space, Uint16 address)
 		return value;
 	}
 
-	/* Access to the external memory */
-	nb_access_to_extMemory ++;
-	
-	/* Falcon: External RAM, map X to upper 16K of matching space in Y,P */
+	/* Falcon: External X or Y RAM access */
 	address &= (DSP_RAMSIZE>>1) - 1;
 
 	if (space == DSP_SPACE_X) {
+		/* Map X to upper 16K of matching space in Y,P */
 		address += DSP_RAMSIZE>>1;
+
+		/* Set one access to the X external memory */
+		access_to_ext_memory |= 1 << EXT_X_MEMORY;
 	}
+	else {
+		/* Access to the Y external memory */
+		access_to_ext_memory |= 1 << EXT_Y_MEMORY;
+	}
+
 
 	/* Falcon: External RAM, finally map X,Y to P */
 	return dsp_core.ramext[address & (DSP_RAMSIZE-1)] & BITMASK(24);
@@ -1323,16 +1345,25 @@ static void write_memory_raw(int space, Uint16 address, Uint32 value)
 		}
 	}
 
-	/* Access to the external memory */
-	nb_access_to_extMemory ++;
+	/* Access to X, Y or P external RAM */
 
-	/* Falcon: External RAM, map X to upper 16K of matching space in Y,P */
-	if (space != DSP_SPACE_P) {
+	if (space == DSP_SPACE_P) {
+		/* Access to the P external RAM */
+		access_to_ext_memory |= 1 << EXT_P_MEMORY;
+	}
+	else {
 		address &= (DSP_RAMSIZE>>1) - 1;
-	} 
 
-	if (space == DSP_SPACE_X) {
-		address += DSP_RAMSIZE>>1;
+		if (space == DSP_SPACE_X) {
+			/* Access to the X external RAM */
+			/* map X to upper 16K of matching space in Y,P */
+			address += DSP_RAMSIZE>>1;
+			access_to_ext_memory |= 1;
+		}
+		else {
+			/* Access to the Y external RAM */
+			access_to_ext_memory |= 1 << EXT_Y_MEMORY;
+		}
 	}
 
 	/* Falcon: External RAM, map X,Y to P */
@@ -1391,9 +1422,11 @@ static void dsp_write_reg(Uint32 numreg, Uint32 value)
 			if ((stack_error==0) && (value & (3<<DSP_SP_SE))) {
 				/* Stack underflow or overflow detected, raise interrupt */
 				dsp_add_interrupt(DSP_INTER_STACK_ERROR);
+				dsp_core.registers[DSP_REG_SP] = value & (3<<DSP_SP_SE);
 				if (!isDsp_in_disasm_mode)
 					fprintf(stderr,"Dsp: Stack Overflow or Underflow\n");
-				dsp_core.registers[DSP_REG_SP] = value & (3<<DSP_SP_SE);
+				if (bExceptionDebugging)
+					DebugUI(REASON_DSP_EXCEPTION);
 			}
 			else
 				dsp_core.registers[DSP_REG_SP] = value & BITMASK(6); 
@@ -1435,6 +1468,8 @@ static void dsp_stack_push(Uint32 curpc, Uint32 cursr, Uint16 sshOnly)
 		dsp_add_interrupt(DSP_INTER_STACK_ERROR);
 		if (!isDsp_in_disasm_mode)
 			fprintf(stderr,"Dsp: Stack Overflow\n");
+		if (bExceptionDebugging)
+			DebugUI(REASON_DSP_EXCEPTION);
 	}
 	
 	dsp_core.registers[DSP_REG_SP] = (underflow | stack_error | stack) & BITMASK(6);
@@ -1470,6 +1505,8 @@ static void dsp_stack_pop(Uint32 *newpc, Uint32 *newsr)
 		dsp_add_interrupt(DSP_INTER_STACK_ERROR);
 		if (!isDsp_in_disasm_mode)
 			fprintf(stderr,"Dsp: Stack underflow\n");
+		if (bExceptionDebugging)
+			DebugUI(REASON_DSP_EXCEPTION);
 	}
 
 	dsp_core.registers[DSP_REG_SP] = (underflow | stack_error | stack) & BITMASK(6);
@@ -1764,6 +1801,9 @@ static void opcode8h_0(void)
 		case 0x00008c:
 			dsp_enddo();
 			break;
+		default:
+			dsp_undefined();
+			break;
 	}
 }
 
@@ -1782,6 +1822,9 @@ static void dsp_undefined(void)
 	else {
 		cur_inst_len = 1;
 		dsp_core.instr_cycle = 0;
+	}
+	if (bExceptionDebugging) {
+		DebugUI(REASON_DSP_EXCEPTION);
 	}
 }
 
@@ -2325,6 +2368,9 @@ static void dsp_illegal(void)
 {
 	/* Raise interrupt p:0x003e */
 	dsp_add_interrupt(DSP_INTER_ILLEGAL);
+        if (bExceptionDebugging) {
+		DebugUI(REASON_DSP_EXCEPTION);
+	}
 }
 
 static void dsp_jcc_imm(void)
@@ -3688,11 +3734,6 @@ static void dsp_pm_4x(void)
 	numreg = (cur_inst>>16) & BITMASK(2);
 	numreg |= (cur_inst>>17) & (1<<2);
 
-	/* 2 more cycles are needed if address is in external memory */
-	if (l_addr>=0x200) {
-		dsp_core.instr_cycle += 2;
-	}
-	
 	if (cur_inst & (1<<15)) {
 		/* Write D */
 		save_lx = read_memory(DSP_SPACE_X,l_addr);
@@ -3911,11 +3952,6 @@ static void dsp_pm_8(void)
 	dsp_calc_ea(ea1, &x_addr);
 	dsp_calc_ea(ea2, &y_addr);
 
-	/* 2 more cycles are needed if X:address1 and Y:address2 are both in external memory */
-	if ((x_addr>=0x200) && (y_addr>=0x200)) {
-		dsp_core.instr_cycle += 2;
-	}
-
 	switch((cur_inst>>18) & BITMASK(2)) {
 		case 0:	numreg1=DSP_REG_X0;	break;
 		case 1:	numreg1=DSP_REG_X1;	break;
@@ -4104,7 +4140,7 @@ static Uint16 dsp_sub56(Uint32 *source, Uint32 *dest)
 
 	dest_save = dest[0];
 
-	/* Substract source from dest: D = D-S */
+	/* Subtract source from dest: D = D-S */
 	dest[2] -= source[2];
 	dest[1] -= source[1]+((dest[2]>>24) & 1);
 	dest[0] -= source[0]+((dest[1]>>24) & 1);

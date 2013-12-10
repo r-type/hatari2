@@ -1,8 +1,8 @@
 /*
   Hatari - debugcpu.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   debugcpu.c - function needed for the CPU debugging tasks like memory
   and register dumps.
@@ -10,6 +10,7 @@
 const char DebugCpu_fileid[] = "Hatari debugcpu.c : " __DATE__ " " __TIME__;
 
 #include <stdio.h>
+#include <ctype.h>
 
 #include "config.h"
 
@@ -30,6 +31,9 @@ const char DebugCpu_fileid[] = "Hatari debugcpu.c : " __DATE__ " " __TIME__;
 #include "str.h"
 #include "symbols.h"
 #include "68kDisass.h"
+#include "console.h"
+#include "options.h"
+
 
 #define MEMDUMP_COLS   16      /* memdump, number of bytes per row */
 #define NON_PRINT_CHAR '.'     /* character to display for non-printables */
@@ -192,7 +196,7 @@ int DebugCpu_DisAsm(int nArgc, char *psArgs[])
 	for (insts = 0; insts < max_insts && disasm_addr < disasm_upper; insts++)
 	{
 		DebugCpu_ShowAddressInfo(disasm_addr);
-		Disasm(debugOutput, (uaecptr)disasm_addr, &nextpc, 1, DISASM_ENGINE_EXT);
+		Disasm(debugOutput, (uaecptr)disasm_addr, &nextpc, 1);
 		disasm_addr = nextpc;
 	}
 	fflush(debugOutput);
@@ -208,32 +212,17 @@ int DebugCpu_DisAsm(int nArgc, char *psArgs[])
  */
 static char *DebugCpu_MatchRegister(const char *text, int state)
 {
-	static const char regs[][3] = {
+	static const char* regs[] = {
 		"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
 		"d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7",
 		"pc", "sr"
 	};
-	static int i, len;
-	
-	if (!state)
-	{
-		/* first match */
-		i = 0;
-		len = strlen(text);
-		if (len > 2)
-			return NULL;
-	}
-	/* next match */
-	while (i < ARRAYSIZE(regs)) {
-		if (strncasecmp(regs[i++], text, len) == 0)
-			return (strdup(regs[i-1]));
-	}
-	return NULL;
+	return DebugUI_MatchHelper(regs, ARRAYSIZE(regs), text, state);
 }
 
 
 /**
- * Set address of the named register to given argument.
+ * Set address of the named 32-bit register to given argument.
  * Return register size in bits or zero for uknown register name.
  * Handles D0-7 data and A0-7 address registers, but not PC & SR
  * registers as they need to be accessed using UAE accessors.
@@ -366,8 +355,7 @@ static int DebugCpu_BreakCond(int nArgc, char *psArgs[])
  */
 static int DebugCpu_Profile(int nArgc, char *psArgs[])
 {
-	Profile_Command(nArgc, psArgs, false);
-	return DEBUGGER_CMDDONE;
+	return Profile_Command(nArgc, psArgs, false);
 }
 
 
@@ -492,12 +480,124 @@ static int DebugCpu_Continue(int nArgc, char *psArgv[])
 	return DEBUGGER_END;
 }
 
+/**
+ * Command: Single-step CPU
+ */
+static int DebugCpu_Step(int nArgc, char *psArgv[])
+{
+	nCpuSteps = 1;
+	return DEBUGGER_END;
+}
+
+
+/**
+ * Readline match callback to list next command opcode types.
+ * STATE = 0 -> different text from previous one.
+ * Return next match or NULL if no matches.
+ */
+static char *DebugCpu_MatchNext(const char *text, int state)
+{
+	static const char* ntypes[] = {
+		"branch", "exception", "exreturn", "subcall", "subreturn"
+	};
+	return DebugUI_MatchHelper(ntypes, ARRAYSIZE(ntypes), text, state);
+}
+
+/**
+ * Command: Step CPU, but proceed through subroutines
+ * Does this by temporary conditional breakpoint
+ */
+static int DebugCpu_Next(int nArgc, char *psArgv[])
+{
+	char command[40];
+	if (nArgc > 1)
+	{
+		int optype;
+		if(strcmp(psArgv[1], "branch") == 0)
+			optype = CALL_BRANCH;
+		else if(strcmp(psArgv[1], "exception") == 0)
+			optype = CALL_EXCEPTION;
+		else if(strcmp(psArgv[1], "exreturn") == 0)
+			optype = CALL_EXCRETURN;
+		else if(strcmp(psArgv[1], "subcall") == 0)
+			optype = CALL_SUBROUTINE;
+		else if (strcmp(psArgv[1], "subreturn") == 0)
+			optype = CALL_SUBRETURN;
+		else
+		{
+			fprintf(stderr, "Unrecognized opcode type given!\n");
+			return DEBUGGER_CMDDONE;
+		}
+		sprintf(command, "CpuOpcodeType=%d :once :quiet\n", optype);
+	}
+	else
+	{
+		Uint32 nextpc = Disasm_GetNextPC(M68000_GetPC());
+		sprintf(command, "pc=$%x :once :quiet\n", nextpc);
+	}
+	if (BreakCond_Command(command, false))
+	{
+		nCpuSteps = 0;		/* using breakpoint, not steps */
+		return DEBUGGER_END;
+	}
+	return DEBUGGER_CMDDONE;
+}
+
+/* helper to get instruction type */
+Uint32 DebugCpu_OpcodeType(void)
+{
+	/* cannot use OpcodeFamily like profiler does,
+	 * as that's for previous instructions
+	 */
+	Uint16 opcode = STMemory_ReadWord(M68000_GetPC());
+
+	if (opcode == 0x4e74 ||			/* RTD */
+	    opcode == 0x4e75 ||			/* RTS */
+	    opcode == 0x4e77)			/* RTR */
+		return CALL_SUBRETURN;
+
+	if (opcode == 0x4e73)			/* RTE */
+		return CALL_EXCRETURN;
+
+	/* NOTE: BSR needs to be matched before BRA/BCC! */
+	if ((opcode & 0xff00) == 0x6100 ||	/* BSR */
+	    (opcode & 0xffc0) == 0x4e80)	/* JSR */
+		return CALL_SUBROUTINE;
+
+	/* TODO: ftrapcc, chk2? */
+	if (opcode == 0x4e72 ||			/* STOP */
+	    opcode == 0x4afc ||			/* ILLEGAL */
+	    opcode == 0x4e76 ||			/* TRAPV */
+	    (opcode & 0xfff0) == 0x4e40 ||	/* TRAP */
+	    (opcode & 0xf1c0) == 0x4180 ||	/* CHK */
+	    (opcode & 0xfff8) == 0x4848)	/* BKPT */
+		return CALL_EXCEPTION;
+
+	/* TODO: fbcc, fdbcc */
+	if ((opcode & 0xf000) == 0x6000 ||	/* BRA / BCC */
+	    (opcode & 0xffc0) == 0x4ec0 ||	/* JMP */
+	    (opcode & 0xf080) == 0x50c8)	/* DBCC */
+		return CALL_BRANCH;
+
+	return CALL_UNKNOWN;
+}
+
+
+/**
+ * CPU instructions since continuing emulation
+ */
+static Uint32 nCpuInstructions;
+Uint32 DebugCpu_InstrCount(void)
+{
+	return nCpuInstructions;
+}
 
 /**
  * This function is called after each CPU instruction when debugging is enabled.
  */
 void DebugCpu_Check(void)
 {
+	nCpuInstructions++;
 	if (bCpuProfiling)
 	{
 		Profile_CpuUpdate();
@@ -509,17 +609,28 @@ void DebugCpu_Check(void)
 	if (nCpuActiveCBs)
 	{
 		if (BreakCond_MatchCpu())
+		{
 			DebugUI(REASON_CPU_BREAKPOINT);
+			/* make sure we don't decrease step count
+			 * below, before even even getting out of here
+			 */
+			if (nCpuSteps)
+				nCpuSteps++;
+		}
 	}
 	if (nCpuSteps)
 	{
-		nCpuSteps -= 1;
+		nCpuSteps--;
 		if (nCpuSteps == 0)
 			DebugUI(REASON_CPU_STEPS);
 	}
-	if (bHistoryEnabled)
+	if (History_TrackCpu())
 	{
 		History_AddCpu();
+	}
+	if (ConOutDevice != CONOUT_DEVICE_NONE)
+	{
+		Console_Check();
 	}
 }
 
@@ -533,9 +644,13 @@ void DebugCpu_SetDebugging(void)
 	bCpuProfiling = Profile_CpuStart();
 	nCpuActiveCBs = BreakCond_BreakPointCount(false);
 
-	if (nCpuActiveCBs || nCpuSteps || bCpuProfiling || bHistoryEnabled
-	    || LOG_TRACE_LEVEL((TRACE_CPU_DISASM|TRACE_CPU_SYMBOLS)))
+	if (nCpuActiveCBs || nCpuSteps || bCpuProfiling || History_TrackCpu()
+	    || LOG_TRACE_LEVEL((TRACE_CPU_DISASM|TRACE_CPU_SYMBOLS))
+	    || ConOutDevice != CONOUT_DEVICE_NONE)
+	{
 		M68000_SetSpecial(SPCFLAG_DEBUGGER);
+		nCpuInstructions = 0;
+	}	
 	else
 		M68000_UnsetSpecial(SPCFLAG_DEBUGGER);
 }
@@ -585,7 +700,7 @@ static const dbgcommand_t cpucommands[] =
 	  "write bytes to memory",
 	  "address byte1 [byte2 ...]\n"
 	  "\tWrite bytes to a memory address, bytes are space separated\n"
-	  "\thexadecimals.",
+	  "\tvalues in current number base.",
 	  false },
 	{ DebugCpu_LoadBin, NULL,
 	  "loadbin", "l",
@@ -594,7 +709,7 @@ static const dbgcommand_t cpucommands[] =
 	  "\tLoad the file <filename> into memory starting at <address>.",
 	  false },
 	{ DebugCpu_SaveBin, NULL,
-	  "savebin", "s",
+	  "savebin", "",
 	  "save memory to a file",
 	  "filename address length\n"
 	  "\tSave the memory block at <address> with given <length> to\n"
@@ -604,6 +719,21 @@ static const dbgcommand_t cpucommands[] =
 	  "symbols", "",
 	  "load CPU symbols & their addresses",
 	  Symbols_Description,
+	  false },
+	{ DebugCpu_Step, NULL,
+	  "step", "s",
+	  "single-step CPU",
+	  "\n"
+	  "\tExecute next CPU instruction (equals 'c 1')",
+	  false },
+	{ DebugCpu_Next, DebugCpu_MatchNext,
+	  "next", "n",
+	  "step CPU through subroutine calls / to given instruction type",
+	  "[instruction type]\n"
+	  "\tSame as 'step' command if there are no subroutine calls.\n"
+          "\tWhen there are, those calls are treated as one instruction.\n"
+	  "\tIf argument is given, continues until instruction of given\n"
+	  "\ttype is encountered.",
 	  false },
 	{ DebugCpu_Continue, NULL,
 	  "cont", "c",

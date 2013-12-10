@@ -1,8 +1,8 @@
 /*
   Hatari - m68000.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   These routines originally (in WinSTon) handled exceptions as well as some
   few OpCode's such as Line-F and Line-A. In Hatari it has mainly become a
@@ -75,6 +75,12 @@ const char M68000_fileid[] = "Hatari m68000.c : " __DATE__ " " __TIME__;
 #include "stMemory.h"
 #include "tos.h"
 
+#if ENABLE_WINUAE_CPU
+#include "mmu_common.h"
+#endif
+
+/* information about current CPU instruction */
+cpu_instruction_t CpuInstruction;
 
 Uint32 BusErrorAddress;         /* Stores the offending address for bus-/address errors */
 Uint32 BusErrorPC;              /* Value of the PC when bus error occurs */
@@ -82,6 +88,7 @@ bool bBusErrorReadWrite;        /* 0 for write error, 1 for read error */
 int nCpuFreqShift;              /* Used to emulate higher CPU frequencies: 0=8MHz, 1=16MHz, 2=32Mhz */
 int nWaitStateCycles;           /* Used to emulate the wait state cycles of certain IO registers */
 int BusMode = BUS_MODE_CPU;	/* Used to tell which part is owning the bus (cpu, blitter, ...) */
+bool CPU_IACK = false;		/* Set to true during an exception when getting the interrupt's vector number */
 
 int LastOpcodeFamily = i_NOP;	/* see the enum in readcpu.h i_XXX */
 int LastInstrCycles = 0;	/* number of cycles for previous instr. (not rounded to 4) */
@@ -219,8 +226,7 @@ void M68000_Reset(bool bCold)
 		regs.spcflags = spcFlags;
 	}
 	/* Now reset the WINUAE CPU core */
-	/* Laurent : for now, using parameter 0 (Hard reset), but some other parameters can be used here (see newcpu.c) */
-	m68k_reset(0);
+	m68k_reset(bCold);
 #else /* UAE CPU core */
 	if (bCold)
 	{
@@ -231,6 +237,7 @@ void M68000_Reset(bool bCold)
 	m68k_reset();
 #endif
 	BusMode = BUS_MODE_CPU;
+	CPU_IACK = false;
 }
 
 
@@ -426,6 +433,12 @@ void M68000_BusError(Uint32 addr, bool bRead)
 	{
 		BusErrorAddress = addr;				/* Store for exception frame */
 		bBusErrorReadWrite = bRead;
+#if ENABLE_WINUAE_CPU
+		if (currprefs.mmu_model) {
+			THROW(2);
+			return;
+		}
+#endif
 		M68000_SetSpecial(SPCFLAG_BUSERROR);		/* The exception will be done in newcpu.c */
 	}
 }
@@ -477,6 +490,7 @@ void M68000_Exception(Uint32 ExceptionVector , int ExceptionSource)
 		 * of higher priority! */
 		if (ExceptionSource == M68000_EXC_SRC_INT_MFP)
 		{
+			// FIXME : this test is useless, per design mfp.c will always give an address in the correct range
 			Uint32 MFPBaseVector = (unsigned int)(MFP_VR&0xf0)<<2;
 			if ( (ExceptionVector>=MFPBaseVector) && (ExceptionVector<=(MFPBaseVector+0x3c)) )
 				SR = (SR&SR_CLEAR_IPL)|0x0600; /* MFP, level 6 */
@@ -505,3 +519,29 @@ void M68000_WaitState(int nCycles)
 
 	nWaitStateCycles += nCycles;	/* add all the wait states for this instruction */
 }
+
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Some components (HBL/VBL interrupts, access to the ACIA) require an
+ * extra delay to be synchronized with the E Clock.
+ * E Clock's frequency is 1/10th of the CPU, ie 0.8 MHz in an STF/STE
+ * This delay is a multiple of 2 and will follow the pattern [ 0 8 6 4 2 ]
+ */
+
+int	M68000_WaitEClock ( void )
+{
+	int	CyclesToNextE;
+
+	/* We must wait for the next multiple of 10 cycles to be synchronised with E Clock */
+	/* FIXME : use video counter to simulate E Clock, but we should use */
+	/* a global cpu counter */
+	CyclesToNextE = 10 - Cycles_GetCounter(CYCLES_COUNTER_VIDEO) % 10;
+	if ( CyclesToNextE == 10 )		/* we're already synchronised with E Clock */
+		CyclesToNextE = 0;
+	return CyclesToNextE;
+}
+
+
+

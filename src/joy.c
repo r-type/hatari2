@@ -1,8 +1,8 @@
 /*
   Hatari - joy.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Joystick routines.
 
@@ -23,6 +23,18 @@ const char Joy_fileid[] = "Hatari joy.c : " __DATE__ " " __TIME__;
 #define JOY_BUTTON1  1
 #define JOY_BUTTON2  2
 
+typedef struct
+{
+	int XPos,YPos;                /* the actually read axis values in range of -32768...0...32767 */
+	int XAxisID,YAxisID;          /* the IDs of the physical PC joystick's axis to be used to gain ST joystick axis input */
+	int Buttons;                  /* JOY_BUTTON1 */
+} JOYREADING;
+
+typedef struct
+{
+    const char *SDLJoystickName;
+    int XAxisID,YAxisID;           /* the IDs associated with a certain SDL joystick */
+} JOYAXISMAPPING;
 
 static SDL_Joystick *sdlJoystick[ JOYSTICK_COUNT ] =		/* SDL's joystick structures */
 {
@@ -30,7 +42,7 @@ static SDL_Joystick *sdlJoystick[ JOYSTICK_COUNT ] =		/* SDL's joystick structur
 };
 
 /* Further explanation see JoyInit() */
-static JOYAXISMAPPING *sdlJoystickMapping[ JOYSTICK_COUNT ] =	/* references which axis are actually in use by the selected SDL joystick */
+static JOYAXISMAPPING const *sdlJoystickMapping[ JOYSTICK_COUNT ] =	/* references which axis are actually in use by the selected SDL joystick */
 {
 	NULL, NULL, NULL, NULL, NULL, NULL
 };
@@ -62,17 +74,15 @@ void Joy_Init(void)
 	/* Find out the axis number with the tool jstest.	*/
 
 	/* FIXME: Read those settings from a configuration file and make them tunable from the GUI. */
-	static JOYAXISMAPPING AxisMappingTable [] =
+	static const JOYAXISMAPPING AxisMappingTable [] =
 	{
-       		/* USB game pad with ID ID 0079:0011, sold by Speedlink*/
+       		/* USB game pad with ID ID 0079:0011, sold by Speedlink */
 		{"USB Gamepad" , 3, 4},
-		/* default entry, is used if no other SDL joystick name does match */
+		/* Default entry used if no other SDL joystick name does match (should be last of this list) */
 		{"*DEFAULT*" , 0, 1},
 	};
 
-	int i, nPadsConnected;
-
-	JOYAXISMAPPING *thismapping;
+	int i, j, nPadsConnected;
 
 	/* Initialise SDL's joystick subsystem: */
 	if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0)
@@ -93,19 +103,16 @@ void Joy_Init(void)
 			/* Set as working */
 			bJoystickWorking[i] = true;
 			Log_Printf(LOG_DEBUG, "Joystick %i: %s\n", i, SDL_JoystickName(i));
-			/* determine joystick axis mapping for given SDL joystick name: */
-			thismapping = AxisMappingTable;
-			while(strcmp(thismapping->SDLJoystickName, "*DEFAULT*") != 0)
-			{
+			/* determine joystick axis mapping for given SDL joystick name, last is default: */
+			for (j = 0; j < ARRAYSIZE(AxisMappingTable)-1; j++) {
 				/* check if ID string matches the one reported by SDL: */
-				if(strncmp(thismapping->SDLJoystickName, SDL_JoystickName(i),strlen(thismapping->SDLJoystickName)) == 0)
+				if(strncmp(AxisMappingTable[j].SDLJoystickName, SDL_JoystickName(i), strlen(AxisMappingTable[j].SDLJoystickName)) == 0)
 					break;
-				/* iterate mapping table: */
-				thismapping++;
 			}
 
-			sdlJoystickMapping[i] = thismapping;
-			Log_Printf(LOG_DEBUG, "Joystick %i maps axis %d and %d\n", i, sdlJoystickMapping[i]->XAxisID, sdlJoystickMapping[i]->YAxisID);
+			sdlJoystickMapping[i] = &(AxisMappingTable[j]);
+			Log_Printf(LOG_DEBUG, "Joystick %i maps axis %d and %d (%s)\n", i, sdlJoystickMapping[i]->XAxisID, sdlJoystickMapping[i]->YAxisID,
+					sdlJoystickMapping[i]->SDLJoystickName );
 		}
 	}
 

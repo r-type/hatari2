@@ -1,8 +1,8 @@
 /*
   Hatari - Crossbar.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Falcon Crossbar (Matrice) emulation.
   input device:	
@@ -46,7 +46,7 @@
     $FF8937 (byte) : Codec Input Source
     $FF8938 (byte) : Codec ADC Input
     $FF8939 (byte) : Gain Settings Per Channel
-    $FF893A (byte) : Attenuation Settings Per Channel
+    $FF893A (word) : Attenuation Settings Per Channel
     $FF893C (word) : Codec Status
     $FF8940 (word) : GPIO Data Direction
     $FF8942 (word) : GPIO Data
@@ -1080,17 +1080,17 @@ void Crossbar_InputAmp_WriteByte(void)
 
 /**
  * Write byte to channel reduction register (attenuation for DAC device) (0xff893a).
- * 	Bits LLLLRRRR
+ * 	Bits XXXXLLLL RRRRXXXX
  * 	Reduction is in -1.5 dB steps
  */
-void Crossbar_OutputReduct_WriteByte(void)
+void Crossbar_OutputReduct_WriteWord(void)
 {
-	Uint8 reduction = IoMem_ReadByte(0xff893a);
+	Uint16 reduction = IoMem_ReadWord(0xff893a);
 
-	LOG_TRACE(TRACE_CROSSBAR, "Crossbar : $ff893a (CODEC channel attenuation) write: 0x%02x\n", IoMem_ReadByte(0xff893a));
+	LOG_TRACE(TRACE_CROSSBAR, "Crossbar : $ff893a (CODEC channel attenuation) write: 0x%04x\n", reduction);
 
-	crossbar.attenuationSettingLeft = Crossbar_DAC_volume_table[reduction >> 4];
-	crossbar.attenuationSettingRight = Crossbar_DAC_volume_table[reduction & 0xf];
+	crossbar.attenuationSettingLeft = Crossbar_DAC_volume_table[(reduction >> 8) & 0x0f];
+	crossbar.attenuationSettingRight = Crossbar_DAC_volume_table[(reduction >> 4) & 0x0f];
 }
 
 /**
@@ -1519,7 +1519,7 @@ static void Crossbar_Process_DMAPlay_Transfer(void)
 	{		
 		/* Send a MFP15_Int (I7) at end of replay buffer if enabled */
 		if (dmaPlay.mfp15_int) {
-			MFP_InputOnChannel(MFP_TIMER_GPIP7_BIT, MFP_IERA, &MFP_IPRA);
+			MFP_InputOnChannel ( MFP_INT_GPIP7 , 0 );
 			LOG_TRACE(TRACE_CROSSBAR, "Crossbar : MFP15 (IT7) interrupt from DMA play\n");
 		}
 
@@ -1615,7 +1615,7 @@ void Crossbar_SendDataToDmaRecord(Sint16 value)
 	{
 		/* Send a MFP15_Int (I7) at end of record buffer if enabled */
 		if (dmaRecord.mfp15_int) {
-			MFP_InputOnChannel(MFP_TIMER_GPIP7_BIT, MFP_IERA, &MFP_IPRA);
+			MFP_InputOnChannel ( MFP_INT_GPIP7 , 0 );
 			LOG_TRACE(TRACE_CROSSBAR, "Crossbar : MFP15 (IT7) interrupt from DMA record\n");
 		}
 	

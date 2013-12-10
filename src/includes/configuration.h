@@ -1,8 +1,8 @@
 /*
   Hatari - configuration.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 
 #ifndef HATARI_CONFIGURATION_H
@@ -16,6 +16,8 @@ typedef struct
   int nTextLogLevel;
   int nAlertDlgLogLevel;
   bool bConfirmQuit;
+  bool bNatFeats;
+  bool bConsoleWindow;	/* for now, used just for Windows */
 } CNF_LOG;
 
 
@@ -25,6 +27,8 @@ typedef struct
   int nNumberBase;
   int nDisasmLines;
   int nMemdumpLines;
+  int nDisasmOptions;
+  bool bDisasmUAE;
 } CNF_DEBUGGER;
 
 
@@ -155,6 +159,8 @@ typedef struct
 {
   bool bAutoInsertDiskB;
   bool FastFloppy;			/* true to speed up FDC emulation */
+  bool EnableDriveA;
+  bool EnableDriveB;
   WRITEPROTECTION nWriteProtection;
   char szDiskZipPath[MAX_FLOPPYDRIVES][FILENAME_MAX];
   char szDiskFileName[MAX_FLOPPYDRIVES][FILENAME_MAX];
@@ -166,6 +172,13 @@ typedef struct
 #define MAX_HARDDRIVES  24
 #define DRIVE_C 0
 
+typedef enum
+{
+  GEMDOS_NOP,
+  GEMDOS_UPPER,
+  GEMDOS_LOWER
+} GEMDOS_CHR_CONV;
+
 typedef struct
 {
   int nHardDiskDir;
@@ -174,6 +187,7 @@ typedef struct
   bool bUseIdeMasterHardDiskImage;
   bool bUseIdeSlaveHardDiskImage;
   WRITEPROTECTION nWriteProtection;
+  GEMDOS_CHR_CONV nGemdosCase;
   bool bBootFromHardDisk;
   char szHardDiskDirectories[MAX_HARDDRIVES][FILENAME_MAX];
   char szHardDiskImage[FILENAME_MAX];
@@ -249,7 +263,7 @@ typedef enum
   MACHINE_STE,
   MACHINE_TT,
   MACHINE_FALCON,
-  MACHINE_MEGA_STE,
+  MACHINE_MEGA_STE
 } MACHINETYPE;
 
 typedef enum

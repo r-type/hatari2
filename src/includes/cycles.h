@@ -1,8 +1,8 @@
 /*
   Hatari - cycles.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 
 #ifndef HATARI_CYCLES_H
@@ -22,7 +22,7 @@ enum
 
 
 extern int	nCyclesMainCounter;
-extern Sint64	CyclesGlobalClockCounter;
+extern Uint64	CyclesGlobalClockCounter;
 
 extern int	CurrentInstrCycles;
 extern int	MovepByteNbr;
@@ -33,7 +33,7 @@ extern void Cycles_SetCounter(int nId, int nValue);
 extern int Cycles_GetCounter(int nId);
 extern int Cycles_GetCounterOnReadAccess(int nId);
 extern int Cycles_GetCounterOnWriteAccess(int nId);
-extern Sint64 Cycles_GetClockCounterOnReadAccess(void);
-extern Sint64 Cycles_GetClockCounterOnWriteAccess(void);
+extern Uint64 Cycles_GetClockCounterOnReadAccess(void);
+extern Uint64 Cycles_GetClockCounterOnWriteAccess(void);
 
 #endif  /* HATARI_CYCLES_H */

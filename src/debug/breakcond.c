@@ -1,10 +1,10 @@
 /*
   Hatari - breakcond.c
 
-  Copyright (c) 2009-2010 by Eero Tamminen
+  Copyright (c) 2009-2012 by Eero Tamminen
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   breakcond.c - code for breakpoint conditions that can check variable
   and memory values against each other, mask them etc. before deciding
@@ -29,6 +29,7 @@ const char BreakCond_fileid[] = "Hatari breakcond.c : " __DATE__ " " __TIME__;
 #include "debug_priv.h"
 #include "breakcond.h"
 #include "debugcpu.h"
+#include "debugdsp.h"
 #include "debugInfo.h"
 #include "debugui.h"
 #include "evaluate.h"
@@ -94,7 +95,9 @@ typedef struct {
 	char *filename;	/* file where to read commands to do on hit */
 	int skip;	/* how many times to hit before breaking */
 	bool once;	/* remove after hit&break */
+	bool quiet;	/* no output from setting & hitting */
 	bool trace;	/* trace mode, don't break */
+	bool noinit;	/* prevent debugger inits on break */
 	bool lock;	/* tracing + show locked info */
 } bc_options_t;
 
@@ -246,9 +249,31 @@ static Uint32 BreakCond_GetValue(const bc_value_t *bc_value)
 
 
 /**
+ * Show & update rvalue for a tracked breakpoint condition to lvalue
+ */
+static void BreakCond_UpdateTracked(bc_condition_t *condition, Uint32 value)
+{
+	Uint32 addr;
+
+	/* next monitor changes to this new value */
+	condition->rvalue.value.number = value;
+
+	if (condition->lvalue.is_indirect &&
+	    condition->lvalue.valuetype == VALUE_TYPE_NUMBER) {
+		/* simple memory address */
+		addr = condition->lvalue.value.number;
+		fprintf(stderr, "  $%x = $%x\n", addr, value);
+	} else {
+		/* register tms. */
+		fprintf(stderr, "  $%x\n", value);
+	}
+}
+
+
+/**
  * Return true if all of the given breakpoint's conditions match
  */
-static bool BreakCond_MatchConditions(const bc_condition_t *condition, int count)
+static bool BreakCond_MatchConditions(bc_condition_t *condition, int count)
 {
 	Uint32 lvalue, rvalue;
 	bool hit = false;
@@ -280,6 +305,9 @@ static bool BreakCond_MatchConditions(const bc_condition_t *condition, int count
 		if (!hit) {
 			return false;
 		}
+		if (condition->track) {
+			BreakCond_UpdateTracked(condition, lvalue);
+		}
 	}
 	/* all conditions matched */
 	return true;
@@ -287,61 +315,31 @@ static bool BreakCond_MatchConditions(const bc_condition_t *condition, int count
 
 
 /**
- * Show values for the tracked breakpoint conditions
- */
-static void BreakCond_ShowTracked(bc_condition_t *condition, int count)
-{
-	Uint32 addr, value;
-	char sep;
-	int i;
-	
-	sep = ' ';
-	for (i = 0; i < count; condition++, i++) {
-		if (!condition->track) {
-			continue;
-		}
-
-		/* get the new value in address */
-		value = BreakCond_GetValue(&(condition->lvalue));
-		/* next monitor changes to this new value */
-		condition->rvalue.value.number = value;
-		
-		if (condition->lvalue.is_indirect &&
-		    condition->lvalue.valuetype == VALUE_TYPE_NUMBER) {
-			/* simple memory address */
-			addr = condition->lvalue.value.number;
-			fprintf(stderr, "%c $%x = $%x", sep, addr, value);
-		} else {
-			/* register tms. */
-			fprintf(stderr, "%c $%x", sep, value);
-		}
-		sep = ',';
-	}
-	fprintf(stderr, "\n");
-}
-
-
-/**
- * Return which of the given condition breakpoints match
- * or zero if none matched
+ * Show all breakpoints which conditions matched and return which matched
+ * @return	index to last matching (non-tracing) breakpoint,
+ *		or zero if none matched
  */
 static int BreakCond_MatchBreakPoints(bc_breakpoint_t *bp, int count, const char *name)
 {
-	bool for_dsp;
-	int i, ret;
-	
+	int i, ret = 0;
+
 	for (i = 0; i < count; bp++, i++) {
 
 		if (BreakCond_MatchConditions(bp->conditions, bp->ccount)) {
+			bool for_dsp;
 
 			bp->hits++;
-			if (bp->options.skip &&
-			    (bp->hits % bp->options.skip) == 0) {
-				return 0;
+			if (bp->options.skip) {
+				if (bp->hits % bp->options.skip) {
+					/* check next */
+					continue;
+				}
 			}
-			fprintf(stderr, "%d. %s breakpoint condition(s) matched %d times.\n",
-				i+1, name, bp->hits);
-
+			if (!bp->options.quiet) {
+				fprintf(stderr, "%d. %s breakpoint condition(s) matched %d times.\n",
+					i+1, name, bp->hits);			
+				BreakCond_Print(bp);
+			}
 			for_dsp = (bp-i == BreakPointsDsp);
 			if (for_dsp) {
 				History_Mark(REASON_DSP_BREAKPOINT);
@@ -349,31 +347,33 @@ static int BreakCond_MatchBreakPoints(bc_breakpoint_t *bp, int count, const char
 				History_Mark(REASON_CPU_BREAKPOINT);
 			}
 
-			if (bp->options.lock) {
-				DebugCpu_InitSession();
-				DebugDsp_InitSession();
-				DebugInfo_ShowSessionInfo();
-			}
-			if (bp->options.filename) {
-				DebugUI_ParseFile(bp->options.filename);
-			}
+			if (bp->options.lock || bp->options.filename) {
+				bool reinit = !bp->options.noinit;
 
-			if (bp->options.trace) {
-				ret = 0;
-			} else {
-				/* indexes for BreakCond_Remove() start from 1 */
-				ret = i + 1;
+				if (reinit) {
+					DebugCpu_InitSession();
+					DebugDsp_InitSession();
+				}
+
+				if (bp->options.lock) {
+					DebugInfo_ShowSessionInfo();
+				}
+				if (bp->options.filename) {
+					DebugUI_ParseFile(bp->options.filename, reinit);
+				}
 			}
-			
-			BreakCond_Print(bp);
-			BreakCond_ShowTracked(bp->conditions, bp->ccount);
 			if (bp->options.once) {
 				BreakCond_Remove(i+1, for_dsp);
+				count--;
 			}
-			return ret;
+			if (!bp->options.trace) {
+				/* index for current hit (BreakCond_Remove() indexes start from 1) */
+				ret = i + 1;
+			}
+			/* continue checking breakpoints to make sure all relevant actions get performed */
 		}
 	}
-	return 0;
+	return ret;
 }
 
 /* ------------- breakpoint condition checking, public API ------------- */
@@ -531,19 +531,30 @@ static Uint32 GetVdiOpcode(void)
 	return INVALID_OPCODE;
 }
 
+static Uint32 GetNextPC(void)
+{
+	return Disasm_GetNextPC(M68000_GetPC());
+}
+
 /* sorted by variable name so that this can be bisected */
 static const var_addr_t hatari_vars[] = {
 	{ "AesOpcode", (Uint32*)GetAesOpcode, VALUE_TYPE_FUNCTION32, 16, "by default FFFF" },
 	{ "BiosOpcode", (Uint32*)GetBiosOpcode, VALUE_TYPE_FUNCTION32, 16, "by default FFFF" },
 	{ "BSS", (Uint32*)DebugInfo_GetBSS, VALUE_TYPE_FUNCTION32, 0, "invalid before Desktop is up" },
+	{ "CpuInstr", (Uint32*)DebugCpu_InstrCount, VALUE_TYPE_FUNCTION32, 0, "CPU instructions count" },
+	{ "CpuOpcodeType", (Uint32*)DebugCpu_OpcodeType, VALUE_TYPE_FUNCTION32, 0, "CPU instruction type" },
 	{ "DATA", (Uint32*)DebugInfo_GetDATA, VALUE_TYPE_FUNCTION32, 0, "invalid before Desktop is up" },
+	{ "DspInstr", (Uint32*)DebugDsp_InstrCount, VALUE_TYPE_FUNCTION32, 0, "DSP instructions count" },
+	{ "DspOpcodeType", (Uint32*)DebugDsp_OpcodeType, VALUE_TYPE_FUNCTION32, 0, "DSP instruction type" },
 	{ "FrameCycles", (Uint32*)GetFrameCycles, VALUE_TYPE_FUNCTION32, 0, NULL },
 	{ "GemdosOpcode", (Uint32*)GetGemdosOpcode, VALUE_TYPE_FUNCTION32, 16, "by default FFFF" },
 	{ "HBL", (Uint32*)&nHBL, VALUE_TYPE_VAR32, sizeof(nHBL)*8, NULL },
 	{ "LineAOpcode", (Uint32*)GetLineAOpcode, VALUE_TYPE_FUNCTION32, 16, "by default FFFF" },
 	{ "LineCycles", (Uint32*)GetLineCycles, VALUE_TYPE_FUNCTION32, 0, "is always divisable by 4" },
 	{ "LineFOpcode", (Uint32*)GetLineFOpcode, VALUE_TYPE_FUNCTION32, 16, "by default FFFF" },
+	{ "NextPC", (Uint32*)GetNextPC, VALUE_TYPE_FUNCTION32, 0, NULL },
 	{ "TEXT", (Uint32*)DebugInfo_GetTEXT, VALUE_TYPE_FUNCTION32, 0, "invalid before Desktop is up" },
+	{ "TEXTEnd", (Uint32*)DebugInfo_GetTEXTEnd, VALUE_TYPE_FUNCTION32, 0, "invalid before Desktop is up" },
 	{ "VBL", (Uint32*)&nVBLs, VALUE_TYPE_VAR32, sizeof(nVBLs)*8, NULL },
 	{ "VdiOpcode", (Uint32*)GetVdiOpcode, VALUE_TYPE_FUNCTION32, 16, "by default FFFF" },
 	{ "XbiosOpcode", (Uint32*)GetXbiosOpcode, VALUE_TYPE_FUNCTION32, 16, "by default FFFF" }
@@ -1336,8 +1347,8 @@ static void BreakCond_CheckTracking(bc_breakpoint_t *bp)
 			condition->rvalue.value.number = value;
 			condition->rvalue.valuetype = VALUE_TYPE_NUMBER;
 			condition->rvalue.is_indirect = false;
-			if (condition->comparison == '!') {
-				/* which changes will be traced */
+			/* track those changes */
+			if (condition->comparison != '=') {
 				condition->track = true;
 				track = true;
 			} else {
@@ -1387,27 +1398,37 @@ static bool BreakCond_Parse(const char *expression, bc_options_t *options, bool 
 	}
 	if (ccount > 0) {
 		(*bcount)++;
-		fprintf(stderr, "%s condition breakpoint %d with %d condition(s) added:\n\t%s\n",
-			name, *bcount, ccount, bp->expression);
-		BreakCond_CheckTracking(bp);
-		if (options->skip) {
-			fprintf(stderr, "-> Break only on every %d hit.\n", options->skip);
-			bp->options.skip = options->skip;
-		}
-		if (options->once) {
-			fprintf(stderr, "-> Once, delete after breaking.\n");
-			bp->options.once = true;
-		}
-		if (options->trace) {
-			fprintf(stderr, "-> Trace instead of breaking, but show still hits.\n");
-			if (options->lock) {
-				fprintf(stderr, "-> Show also info selected with lock command.\n");
-				bp->options.lock = true;
+		if (!options->quiet) {
+			fprintf(stderr, "%s condition breakpoint %d with %d condition(s) added:\n\t%s\n",
+				name, *bcount, ccount, bp->expression);
+			if (options->skip) {
+				fprintf(stderr, "-> Break only on every %d hit.\n", options->skip);
 			}
-			bp->options.trace = true;
+			if (options->once) {
+				fprintf(stderr, "-> Once, delete after breaking.\n");
+			}
+			if (options->trace) {
+				fprintf(stderr, "-> Trace instead of breaking, but show still hits.\n");
+				if (options->lock) {
+					fprintf(stderr, "-> Show also info selected with lock command.\n");
+				}				
+				if (options->noinit) {
+					fprintf(stderr, "-> Skip debugger inits on hit.\n");
+				}				
+			}
+			if (options->filename) {
+				fprintf(stderr, "-> Execute debugger commands from '%s' file on hit.\n", options->filename);
+			}
 		}
+		BreakCond_CheckTracking(bp);
+
+		bp->options.quiet = options->quiet;
+		bp->options.skip = options->skip;
+		bp->options.once = options->once;
+		bp->options.trace = options->trace;
+		bp->options.lock = options->lock;
+		bp->options.noinit = options->noinit;
 		if (options->filename) {
-			fprintf(stderr, "-> Execute debugger commands from '%s' file on hit.\n", options->filename);
 			bp->options.filename = strdup(options->filename);
 		}
 	} else {
@@ -1456,6 +1477,9 @@ static void BreakCond_Print(bc_breakpoint_t *bp)
 				fprintf(stderr, " :lock");
 			} else {
 				fprintf(stderr, " :trace");
+			}
+			if (bp->options.noinit) {
+				fprintf(stderr, " :noinit");
 			}
 		}
 		if (bp->options.filename) {
@@ -1506,8 +1530,10 @@ static bool BreakCond_Remove(int position, bool bForDsp)
 		return false;
 	}
 	offset = position - 1;
-	fprintf(stderr, "Removed %s breakpoint %d:\n", name, position);
-	BreakCond_Print(&(bp[offset]));
+	if (!bp[offset].options.quiet) {
+		fprintf(stderr, "Removed %s breakpoint %d:\n", name, position);
+		BreakCond_Print(&(bp[offset]));
+	}
 	free(bp[offset].expression);
 	if (bp[offset].options.filename) {
 		free(bp[offset].options.filename);
@@ -1623,8 +1649,10 @@ const char BreakCond_Description[] =
 	"\tthe breakpoint condition(s):\n"
 	"\t- 'trace', print the breakpoint match without stopping\n"
 	"\t- 'lock', print the debugger entry info without stopping\n"
+	"\t- 'noinit', no debugger inits on hit, useful for stack tracing\n"
 	"\t- 'file <file>', execute debugger commands from given <file>\n"
 	"\t- 'once', delete the breakpoint after it's hit\n"
+	"\t- 'quiet', no output from setting & hitting breakpoint\n"
 	"\t- '<count>', break only on every <count> hit";
 
 /**
@@ -1655,11 +1683,16 @@ static bool BreakCond_Options(char *str, bc_options_t *options, char marker)
 
 		if (strcmp(option, "once") == 0) {
 			options->once = true;
+		} else if (strcmp(option, "quiet") == 0) {
+			options->quiet = true;
 		} else if (strcmp(option, "trace") == 0) {
 			options->trace = true;
 		} else if (strcmp(option, "lock") == 0) {
 			options->trace = true;
 			options->lock = true;
+		} else if (strcmp(option, "noinit") == 0) {
+			options->trace = true;
+			options->noinit = true;
 		} else if (strncmp(option, "file ", 5) == 0) {
 			filename = Str_Trim(option+4);
 			if (!File_Exists(filename)) {
@@ -1754,6 +1787,7 @@ const char BreakAddr_Description[] =
 	"\t- 'trace', print the breakpoint match without stopping\n"
 	"\t- 'lock', print the debugger entry info without stopping\n"
 	"\t- 'once', delete the breakpoint after it's hit\n"
+	"\t- 'quiet', no output from setting & hitting breakpoint\n"
 	"\t- '<count>', break only on every <count> hit\n"
 	"\n"
 	"\tUse conditional breakpoint commands to manage the created\n"
@@ -1805,10 +1839,10 @@ bool BreakAddr_Command(char *args, bool bForDsp)
 
 	/* on success, show on what instruction it was added */
 	if (bForDsp) {
-		DSP_DisasmAddress(addr, addr);
+		DSP_DisasmAddress(stderr, addr, addr);
 	} else {
 		uaecptr dummy;
-		Disasm(stderr, (uaecptr)addr, &dummy, 1, DISASM_ENGINE_EXT);
+		Disasm(stderr, (uaecptr)addr, &dummy, 1);
 	}
 	return true;
 }

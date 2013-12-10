@@ -1,12 +1,12 @@
 /*
   Hatari - compat.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
-  This file contains all the includes and defines specific to windows (such as TCHAR)
-  needed by WinUae CPU core. 
-  The aim is to have minimum changes in WinUae CPU core for next updates
+  This file contains all the includes and defines specific to windows (such as
+  TCHAR) needed by WinUAE CPU core.
+  The aim is to have minimum changes in WinUae CPU core for next updates.
 */
 
 #ifndef HATARI_COMPAT_H
@@ -31,12 +31,8 @@
 /* Laurent */
 /* here only to allow newcpu.c to compile */
 /* Should be removed when newcpu.c 'll be relooked for hatari only*/
-
-// Laurent : I don't know what to do with these variables, so, for now, I've put them here !!!
-int kickstart_rom, cloanto_rom;
-int config_changed;
-int vpos;
-int quit_program;  // declared as "int quit_program = 0;" in main.c 
+extern int vpos;
+extern int quit_program;  // declared as "int quit_program = 0;" in main.c
 //WinUae ChangeLog: Improve quitting/resetting behaviour: Move quit_program from GUI
 //WinUae ChangeLog: quit_program is now handled in vsync_handler() and m68k_go().
 

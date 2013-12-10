@@ -1,8 +1,8 @@
 /*
   Hatari - video.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 
 #ifndef HATARI_VIDEO_H
@@ -101,7 +101,7 @@
 #define VBL_VIDEO_CYCLE_OFFSET_STE	(64+4)			/* 4 cycles difference on STE */
 
 #define HBL_VIDEO_CYCLE_OFFSET		0			/* cycles after end of current line (ie on every 512 cycles in 50 Hz) */
-#define TIMERB_VIDEO_CYCLE_OFFSET	28			/* cycles after last displayed pixels : 376+28 in 50 Hz or 372+28 in 60 Hz */
+#define TIMERB_VIDEO_CYCLE_OFFSET	24			/* cycles after last displayed pixels : 376+24 in 50 Hz or 372+24 in 60 Hz */
 
 /* This is when ff8205/07/09 are reloaded with the content of ff8201/03 (on line 310 in 50 Hz) */
 #define RESTART_VIDEO_COUNTER_CYCLE_STF	( (SCANLINES_PER_FRAME_50HZ-3) * CYCLES_PER_LINE_50HZ + 48 )
@@ -131,8 +131,6 @@ extern int nCyclesPerLine;
 
 extern int LineTimerBCycle;
 extern int TimerBEventCountCycleStart;
-
-extern int LastCycleHblException;
 
 #define HBL_JITTER_ARRAY_SIZE 5
 extern int HblJitterIndex;

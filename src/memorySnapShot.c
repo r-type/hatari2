@@ -1,8 +1,8 @@
 /*
   Hatari - memorySnapShot.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Memory Snapshot
 
@@ -31,6 +31,7 @@ const char MemorySnapShot_fileid[] = "Hatari memorySnapShot.c : " __DATE__ " " _
 #include "floppy.h"
 #include "floppy_ipf.h"
 #include "gemdos.h"
+#include "acia.h"
 #include "ikbd.h"
 #include "cycInt.h"
 #include "cycles.h"
@@ -53,9 +54,11 @@ const char MemorySnapShot_fileid[] = "Hatari memorySnapShot.c : " __DATE__ " " _
 #include "statusbar.h"
 
 
-#define VERSION_STRING      "devel"   /* Version number of compatible memory snapshots - Always 6 bytes (inc' NULL) */
+#define VERSION_STRING      "1.7.0"   /* Version number of compatible memory snapshots - Always 6 bytes (inc' NULL) */
 
+#if HAVE_LIBZ
 #define COMPRESS_MEMORYSNAPSHOT       /* Compress snapshots to reduce disk space used */
+#endif
 
 #ifdef COMPRESS_MEMORYSNAPSHOT
 
@@ -280,6 +283,7 @@ void MemorySnapShot_Capture(const char *pszFileName, bool bConfirm)
 		Floppy_MemorySnapShot_Capture(true);
 		IPF_MemorySnapShot_Capture(true);			/* After fdc/floppy are saved */
 		GemDOS_MemorySnapShot_Capture(true);
+		ACIA_MemorySnapShot_Capture(true);
 		IKBD_MemorySnapShot_Capture(true);
 		CycInt_MemorySnapShot_Capture(true);
 		Cycles_MemorySnapShot_Capture(true);
@@ -333,7 +337,8 @@ void MemorySnapShot_Restore(const char *pszFileName, bool bConfirm)
 		Floppy_MemorySnapShot_Capture(false);
 		IPF_MemorySnapShot_Capture(false);			/* After fdc/floppy are restored, as IPF depend on them */
 		GemDOS_MemorySnapShot_Capture(false);
-		IKBD_MemorySnapShot_Capture(false);
+		ACIA_MemorySnapShot_Capture(false);
+		IKBD_MemorySnapShot_Capture(false);			/* After ACIA */
 		CycInt_MemorySnapShot_Capture(false);
 		Cycles_MemorySnapShot_Capture(false);
 		M68000_MemorySnapShot_Capture(false);

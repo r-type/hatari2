@@ -1,8 +1,8 @@
 /*
   Hatari - sysconfig.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   This file contains needed auto generated includes and defines needed by WinUae CPU core.
   The aim is to have minimum changes in WinUae CPU core for next updates
@@ -55,6 +55,7 @@
 #define CPUEMU_20 /* 68020 "cycle-exact" + blitter */
 #define CPUEMU_21 /* 68030 (040/060) "cycle-exact" + blitter */
 #define CPUEMU_31 /* 68040 Aranym MMU */
+#define CPUEMU_32 /* 68030 with MMU */
 //#define ACTION_REPLAY /* Action Replay 1/2/3 support */
 #define PICASSO96 /* Picasso96 display card emulation */
 #define UAEGFX_INTERNAL /* built-in libs:picasso96/uaegfx.card */

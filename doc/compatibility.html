@@ -1,15 +1,12 @@
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<!DOCTYPE html>
 <html>
 <head>
   <title>Hatari Atari Software Compatibility List</title>
   <meta name="description"
- content="Atari Software Compatibility List for the Hatari emulator">
-  <meta name="author" content="Hatari development team">
-  <meta name="keywords" content="hatari, documentation, manual, linux">
-  <meta name="resource-type" content="document">
-  <meta name="distribution" content="global">
-  <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-15">
-  <meta http-equiv="Content-Style-Type" content="text/css">
+        content="Atari Software Compatibility List for the Hatari emulator" />
+  <meta name="author" content="Hatari development team" />
+  <meta name="keywords" content="hatari, documentation, manual, linux" />
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
   <style type="text/css">
   <!--
 	body {  background:#FFFFFF;
@@ -20,8 +17,12 @@
 		}
 
 	h2 { border-bottom:solid thin black;}
+	hr { width: 100%; height: 2px; margin-top:4ex; margin-bottom: 2ex; }
 
-	td { font-family:Verdana,Arial,Helvetica,sans-serif; }
+	th { text-align:center; padding:3px; }
+	caption { caption-side:bottom; }
+	td { font-family:Verdana,Arial,Helvetica,sans-serif; padding:3px; }
+	td.subheader { text-align:right; font-style:italic; }
 	td.minor { background:#ffa060 }
 	td.major { background:#ff4040 }
 	a.minor { background:#ffa060 }
@@ -39,9 +40,9 @@
 	.backdropped { background:#ffffee; }
 	.image {margin-left: 5px; margin-right: 5px; border-width:2px; border-style:solid; border-color:#eeeeff; padding:1cm; text-align:center; }
 	.floatimage { clear:right; float:right; margin-left:0.5cm; border-width:2px; border-style:solid; border-color:#eeeeff; padding:0.5cm; }
-
   -->
   </style>
+  <script type="text/javascript" src="toc.js"></script>
 </head>
 
 <body>
@@ -49,55 +50,27 @@
 <h1 class="pageheader">Hatari Atari Software Compatibility List</h1>
 
 <p class="pageheader">
-Version 1.6.2
+Version 1.7, June 2013
 </p>
 <p class="pageheader">
 This list has been written by: <strong>Thomas Huth</strong>, <strong>Eero Tamminen</strong>
- &amp; <strong>Nicolas Pomarede</strong>  
+ &amp; <strong>Nicolas Pomar&egrave;de</strong>
 </p>
 <p class="pageheader">
-Hatari on the WWW: <strong><a href="http://hatari.tuxfamily.org/"
- target="_blank">http://hatari.tuxfamily.org/</a></strong>
+Hatari on the WWW:
+<strong>
+<a href="http://hatari.tuxfamily.org/">http://hatari.tuxfamily.org/</a>
+</strong>
 </p>
 
-<h2>Index</h2>
-<ul>
-  <li><a href="#Introduction">Introduction</a>
-  <ul>
-    <li><a href="#Reporting">Reporting compatibility issues</a>
-  </ul>
-  <li><a href="#ST">ST software compatibility list</a>
-  <ul>
-    <li><a href="#ST games">ST games</a>
-    <li><a href="#ST demos">ST demos</a>
-    <li><a href="#ST applications">ST applications</a>
-    <ul>
-      <li><a href="#midinotes">Midi setup</a>
-    </ul>
-  </ul>
-  <li><a href="#STE">STE software compatibility list</a>
-  <ul>
-    <li><a href="#STE games">STE games</a>
-    <li><a href="#STE demos">STE demos</a>
-    <li><a href="#STE applications">STE applications</a>
-  </ul>
-  <li><a href="#TT">TT software compatibility list</a>
-  <ul>
-    <li><a href="#TT games">TT games</a>
-    <li><a href="#TT demos">TT demos</a>
-  </ul>
-  <li><a href="#Falcon">Falcon software compatibility list</a>
-  <ul>
-    <li><a href="#Falcon games">Falcon games</a>
-    <li><a href="#Falcon demos">Falcon demos</a>
-    <li><a href="#Falcon applications">Falcon applications</a>
-  </ul>
-  <li><a href="#TT/Falcon utilities">TT/Falcon utilities</a>
-  <li><a href="#Software">Software sites</a>
-</ul>
+<h2 class="no-TOC">Index</h2>
+
+<div id="generated-toc">
+<!-- The TOC is generated automatically via JavaScript -->
+</div>
 
 
-<a name="Introduction"></a><h2>Introduction</h2>
+<h2>Introduction</h2>
 
 <p>Here are lists of Atari software that have been tested with
 different Hatari versions and configurations.  <em>The lists concentrate
@@ -120,7 +93,7 @@ or with which it was last tested still to have issues, is given in
 the version field.</p>
 
 
-<a name="Reporting"></a><h3>Reporting compatibility issues</h3>
+<h3>Reporting compatibility issues</h3>
 
 <p>If something that works on the real hardware doesn't work properly
 in Hatari (or something has started working in latest Hatari version)
@@ -151,22 +124,29 @@ For more information, see emutos.txt.</li>
 
 </ul>
 
+<p>
+(<a href="http://www.atari-forum.com/viewtopic.php?f=86&amp;t=14839">More
+information on games compatibility on Atari forum</a>.)
+</p>
 
-<a name="ST"></a><h2>ST software compatibility list</h2>
+
+<h2>ST software compatibility list</h2>
 
 <p>This is not a comprehensive list. By default <b>everything that
 works on a real ST should work also in Hatari</b>.</p>
 
-<a name="ST games"></a><h4>ST games</h4>
+<h3>ST games</h3>
 
-<table border="1" cellpadding="3">
-  <caption align="bottom">Tested ST games</caption>
-  <tbody>
+<table border="1">
+  <caption>Tested ST games</caption>
+  <thead>
     <tr class="backdropped">
-      <td align="center">Game</td>
-      <td align="center">Hatari version</td>
-      <td align="center">Notes</td>
+      <th>Game</th>
+      <th>Hatari version</th>
+      <th>Notes</th>
     </tr>
+  </thead>
+  <tbody>
     <tr>
       <td>Alien World</td>
       <td>before 1.0</td>
@@ -178,9 +158,20 @@ works on a real ST should work also in Hatari</b>.</p>
       <td>&nbsp;</td>
     </tr>
     <tr>
+      <td>Bolo</td>
+      <td>1.7</td>
+      <td>This game works in medium resolution and in monochrome</td>
+    </tr>
+    <tr>
       <td>Bubble Bobble</td>
       <td>before 1.0</td>
       <td>&nbsp;</td>
+    </tr>
+    <tr>
+      <td>Captain Blood</td>
+      <td>1.7</td>
+      <td>Uses the IKBD set-clock command to set a custom time for game-internal
+          time measurement</td>
     </tr>
     <tr>
       <td>Defenders Of The Earth</td>
@@ -208,9 +199,20 @@ works on a real ST should work also in Hatari</b>.</p>
       <td>&nbsp;</td>
     </tr>
     <tr>
+      <td>F29 Retaliator</td>
+      <td>1.6</td>
+      <td>Under some badly cracked versions (Pompey Pirate 38), joystick doesn't work</td>
+    </tr>
+    <tr>
+      <td>Fuzion CD 161</td>
+      <td>1.6</td>
+      <td>Menu's intro is buggy, top border is not correctly removed even on a real STF, due to timer C
+	  not correctly initialized to play digidrums. Use STE mode instead.</td>
+    </tr>
+    <tr>
       <td>Jaguar XJ220 (development demo)</td>
       <td>1.2</td>
-      <td>Only loads correctly when &quot;Slow floppy&quot; option is enabled</td>
+      <td>Only loads correctly when &quot;Fast floppy&quot; option is disabled</td>
     </tr>
     <tr>
       <td>Leisure Suit Larry 2</td>
@@ -226,6 +228,11 @@ works on a real ST should work also in Hatari</b>.</p>
       <td>Lethal Xcess</td>
       <td>1.0</td>
       <td>Uses sync-scrolling in ST mode and STE HW scrolling in STE mode.</td>
+    </tr>
+    <tr>
+      <td>Microprose Golf</td>
+      <td>1.7</td>
+      <td>Requires Hatari &gt;= 1.7 to avoid a crash during the game's intro</td>
     </tr>
     <tr>
       <td>Metal Mutant</td>
@@ -255,7 +262,7 @@ works on a real ST should work also in Hatari</b>.</p>
     <tr>
       <td>Pirates!</td>
       <td>before 1.0</td>
-      <td>Game also supports <a href="#midinotes">MIDI music</a></td>
+      <td>Game also supports <a href="#Midi_setup">MIDI music</a></td>
     </tr>
     <tr>
       <td>R.B.I. Baseball 2</td>
@@ -298,6 +305,11 @@ works on a real ST should work also in Hatari</b>.</p>
       <td>&nbsp;</td>
     </tr>
     <tr>
+      <td>Spidertronic</td>
+      <td>1.7</td>
+      <td>Crashed before the 50/60 Hz selection screen with Hatari &lt; 1.7</td>
+    </tr>
+    <tr>
       <td>Star Goose</td>
       <td>1.1</td>
       <td>&nbsp;</td>
@@ -310,13 +322,14 @@ works on a real ST should work also in Hatari</b>.</p>
     </tr>
     <tr>
       <td>Super Hang-On</td>
-      <td class="minor">1.4</td>
-      <td>Minor screen color sync issues</td>
+      <td>1.7</td>
+      <td>Requires Hatari &gt;= 1.7 to avoid flickering rasters</td>
     </tr>
     <tr>
       <td>Super Monaco GP</td>
-      <td>1.6</td>
-      <td>Requires at least Hatari 1.6 for correct FDC emulation</td>
+      <td>1.7</td>
+      <td>Requires Hatari &gt;= 1.6 for correct FDC emulation
+	  and Hatari &gt;= 1.7 to avoid flickering rasters</td>
     </tr>
     <tr>
       <td>Super Sprint</td>
@@ -327,7 +340,7 @@ works on a real ST should work also in Hatari</b>.</p>
     <tr>
       <td>Super Skweek</td>
       <td>1.3</td>
-      <td>Enable the &quot;Slow floppy&quot; option if your version
+      <td>Disable the &quot;Fast floppy&quot; option if your version
           fails to load</td>
     </tr>
     <tr>
@@ -336,6 +349,16 @@ works on a real ST should work also in Hatari</b>.</p>
       <td>When running on Hatari versions before 1.6, the RS232 emulation must
           be enabled for the game to work (since it writes some debug
           informations to the serial port)</td>
+    </tr>
+    <tr>
+      <td>The Final Conflict</td>
+      <td>1.7</td>
+      <td>Buggy samples replay during the intro, requires Hatari &gt;= 1.7</td>
+    </tr>
+    <tr>
+      <td>The Sentinel</td>
+      <td>1.7</td>
+      <td>Mouse moved too slowly before Hatari 1.7</td>
     </tr>
     <tr>
       <td>Toki</td>
@@ -348,6 +371,13 @@ works on a real ST should work also in Hatari</b>.</p>
       <td>When running on Hatari versions before 1.6, the RS232 emulation must
           be enabled for the game to work (since it writes some debug
           informations to the serial port)</td>
+    </tr>
+    <tr>
+      <td>Warlock's Quest</td>
+      <td>1.7</td>
+      <td>The game has some IKBD bugs, it doesn't work with TOS 1.04, but works
+	  fine with TOS 1.02 or 1.62. The keyboard mode is also less responsive
+	  than the joystick mode, but that's the same on a real ST</td>
     </tr>
     <tr>
       <td>Wings Of Death</td>
@@ -371,10 +401,16 @@ works on a real ST should work also in Hatari</b>.</p>
           so the emulator has to be started with &quot;fast boot&quot; disabled
           or the game will freeze after some few seconds</td>
     </tr>
+    <tr>
+      <td>Zombi</td>
+      <td>1.6.2</td>
+      <td>Uses the IKBD set-clock command to set a custom time for game-internal
+          time measurement</td>
+    </tr>
   </tbody>
 </table>
 
-<a name="ST demos"></a><h4>ST demos</h4>
+<h3>ST demos</h3>
 
 <p>Some (very) rare demos try to install IKBD code.  Hatari doesn't have
 full 6301 emulator, but has specific code to handle these particular demos.
@@ -382,14 +418,16 @@ They are marked with '*'.  Few remaining screen sync issues are related to
 hi/lo frequency switching or switching to 60 Hz for too long (used
 for border removal).</p>
 
-<table border="1" cellpadding="3">
-  <caption align="bottom">Tested ST demos</caption>
-  <tbody>
+<table border="1">
+  <caption>Tested ST demos</caption>
+  <thead>
     <tr class="backdropped">
-      <td align="center">Demo</td>
-      <td align="center">Hatari version</td>
-      <td align="center">Notes</td>
+      <th>Demo</th>
+      <th>Hatari version</th>
+      <th>Notes</th>
     </tr>
+  </thead>
+  <tbody>
     <tr>
       <td>1984:
       <a href="http://pouet.net/prod.php?which=11198">No Cooper</a></td>
@@ -417,6 +455,12 @@ for border removal).</p>
       <a href="http://pouet.net/prod.php?which=12635">Overdose</a></td>
       <td>before 1.0</td>
       <td>Does not work with cartridge / HD emulation</td>
+    </tr>
+    <tr>
+      <td>Big Alec:
+      <a href="http://pouet.net/prod.php?which=31510">Audio Artistic Demo</a></td>
+      <td>1.7</td>
+      <td>&nbsp;</td>
     </tr>
     <tr>
       <td>BushWacKers:
@@ -519,6 +563,13 @@ for border removal).</p>
 	  by Hatari at the moment</td>
     </tr>
     <tr>
+      <td>Inner Circle:
+      <a href="http://pouet.net/prod.php?which=3243">Decade Demo</a></td>
+      <td>1.7</td>
+      <td>Very good demo. Reset part requires Hatari &gt;= 1.7 to avoid flickering
+	  bottom border</td>
+    </tr>
+    <tr>
       <td>Lynx:
       <a href="http://pouet.net/prod.php?which=30934">BBS Intro 3</a></td>
       <td>1.5</td>
@@ -535,8 +586,9 @@ for border removal).</p>
     <tr>
       <td>MJJ Prod:
       <a href="http://pouet.net/prod.php?which=499">Anomaly</a></td>
-      <td class="minor">1.1</td>
-      <td>Main menu gets out of sync when playing digidrums</td>
+      <td>1.7</td>
+      <td>Requires Hatari &gt;= 1.7 to avoid glitches in the main menu
+	  when playing digidrums</td>
     </tr>
     <tr>
       <td>Next:
@@ -548,8 +600,9 @@ for border removal).</p>
     <tr>
       <td>Offbeat:
       <a href="http://pouet.net/prod.php?which=13917">The Musical Wonders 1990</a></td>
-      <td>1.6.2</td>
-      <td></td>
+      <td>1.7</td>
+      <td>This demo requires STE mode. With STF mode, bottom border is not correctly
+	  removed (this is the same on a real STF)</td>
     </tr>
     <tr>
       <td>Omega:
@@ -591,8 +644,9 @@ for border removal).</p>
     <tr>
       <td>Oxygene:
       <a href="http://pouet.net/prod.php?which=1251">ST-NICCC 2000 Demo</a></td>
-      <td>1.6</td>
-      <td>Requires at least Hatari 1.6 for correct FDC emulation</td>
+      <td>1.7</td>
+      <td>Due to a bug in the FDC's emulation, the demo ran slower than expected
+	with Hatari &lt; 1.7</td>
     </tr>
     <tr>
       <td>Paulo Simoes (ljkb):
@@ -662,8 +716,8 @@ for border removal).</p>
       <td>The Marvellous V8:
       <a href="http://pouet.net/prod.php?which=16911">V8 Music System</a></td>
       <td>1.1</td>
-      <td>
-        Works. (Uses a uncommon way to poll for keyboard data).
+      <td>The keyboard detection at the beginning is buggy and it's sometimes
+	necessary to retry several times (this is the same on a real STF)
       </td>
     </tr>
     <tr>
@@ -699,21 +753,23 @@ for border removal).</p>
   </tbody>
 </table>
 
-<a name="ST applications"></a><h4>ST applications</h4>
+<h3>ST applications</h3>
 
 <p>Note that some applications can even crash at startup if their
 configuration or data files are not writable.</p>
 
-<table border="1" cellpadding="3">
-  <caption align="bottom">Tested applications</caption>
+<table border="1">
+  <caption>Tested applications</caption>
+  <thead>
+    <tr class="backdropped">
+      <th>Application</th>
+      <th>Hatari version</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
   <tbody>
     <tr class="backdropped">
-      <td align="center">Application</td>
-      <td align="center">Hatari version</td>
-      <td align="center">Notes</td>
-    </tr>
-    <tr class="backdropped">
-      <td colspan="3" align="right"><i>Programming</i></td>
+      <td colspan="3" class="subheader">Programming</td>
     </tr>
     <tr>
       <td><a href="http://members.chello.nl/h.robbers/">AHCC</a></td>
@@ -726,9 +782,16 @@ configuration or data files are not writable.</p>
       <td>Debugger had issues with GEMDOS HD emulation before Hatari v1.4</td>
     </tr>
     <tr>
-      <td>DevPac 2.2</td>
+      <td>Devpac 2.2</td>
       <td>1.2</td>
       <td>&nbsp;</td>
+    </tr>
+    <tr>
+      <td>Devpac 3</td>
+      <td>1.7</td>
+      <td>Earlier GEMDOS HD emu flushed writes only when file was
+          closed or its metadata was changed.  Before Hatari v1.7
+	  tools run by Devpac could get incomplete file contents</td>
     </tr>
     <tr>
       <td>Turbo Assembler</td>
@@ -758,7 +821,7 @@ configuration or data files are not writable.</p>
       <td>&nbsp;</td>
     </tr>
     <tr class="backdropped">
-      <td colspan="3" align="right"><i>Graphics</i></td>
+      <td colspan="3" class="subheader">Graphics</td>
     </tr>
     <tr>
       <td>Crackart</td>
@@ -791,9 +854,8 @@ configuration or data files are not writable.</p>
     </tr>
     <tr>
       <td>Spectrum 512</td>
-      <td>before 1.0</td>
-      <td>Mouse cannot traverse whole screen unless mouse grab or
-          fullscreen mode is used</td>
+      <td>1.7</td>
+      <td>Mouse moved too slowly before Hatari 1.7</td>
     </tr>
     <tr>
       <td>Speed Of Light</td>
@@ -801,20 +863,27 @@ configuration or data files are not writable.</p>
       <td>&nbsp;</td>
     </tr>
     <tr class="backdropped">
-      <td colspan="3" align="right"><i>Sound</i></td>
+      <td colspan="3" class="subheader">Sound</td>
     </tr>
     <tr>
-      <td>MusicMon 2</td>
+      <td><a href="http://www.pouet.net/prod.php?which=56822">Hextracker</a></td>
+      <td>1.5</td>
+      <td>Uses non-standard mouse event scaling factor.
+          Mouse cannot traverse whole Hatari window unless
+          mouse grab or fullscreen mode is used</td>
+    </tr>
+    <tr>
+      <td><a href="http://www.pouet.net/prod.php?which=18929">MusicMon 2</a></td>
       <td>before 1.0</td>
       <td>&nbsp;</td>
     </tr>
     <tr>
-      <td>Noise Tracker</td>
+      <td><a href="http://www.pouet.net/prod.php?which=50028">Noise Tracker</a></td>
       <td>1.1</td>
       <td>&nbsp;</td>
     </tr>
     <tr>
-      <td>Protracker</td>
+      <td><a href="http://www.pouet.net/prod.php?which=50030">Protracker</a></td>
       <td>before 1.0</td>
       <td>&nbsp;</td>
     </tr>
@@ -824,28 +893,28 @@ configuration or data files are not writable.</p>
       <td>&nbsp;</td>
     </tr>
     <tr>
-      <td>SidSound Designer</td>
+      <td><a href="http://www.pouet.net/prod.php?which=13336">SidSound Designer</a></td>
       <td>before 1.0</td>
       <td>&nbsp;</td>
     </tr>
     <tr>
-      <td>Accompanist<br>(Henry Cosh Sequencer)</td>
+      <td>Accompanist<br />(Henry Cosh Sequencer)</td>
       <td>1.2</td>
-      <td><a href="#midinotes">MIDI input/output</a> works</td>
+      <td><a href="#Midi_setup">MIDI input/output</a> works</td>
     </tr>
     <tr>
       <td>Cubase Lite</td>
       <td>1.2</td>
-      <td><a href="#midinotes">MIDI input/output</a> works</td>
+      <td><a href="#Midi_setup">MIDI input/output</a> works</td>
     </tr>
     <tr>
       <td>Sequencer One</td>
       <td>1.2</td>
-      <td>Both <a href="#midinotes">MIDI input/output</a>
+      <td>Both <a href="#Midi_setup">MIDI input/output</a>
           and sampled sound work</td>
     </tr>
     <tr class="backdropped">
-      <td colspan="3" align="right"><i>Text Editors</i></td>
+      <td colspan="3" class="subheader">Text Editors</td>
     </tr>
     <tr>
       <td>Tempus</td>
@@ -863,7 +932,7 @@ configuration or data files are not writable.</p>
       <td>&nbsp;</td>
     </tr>
     <tr class="backdropped">
-      <td colspan="3" align="right"><i>Business applications</i></td>
+      <td colspan="3" class="subheader">Business applications</td>
     </tr>
     <tr>
       <td>Opus spreadsheet</td>
@@ -891,7 +960,7 @@ configuration or data files are not writable.</p>
       <td>&nbsp;</td>
     </tr>
     <tr class="backdropped">
-      <td colspan="3" align="right"><i>Communications</i></td>
+      <td colspan="3" class="subheader">Communications</td>
     </tr>
     <tr>
       <td>CAB browser</td>
@@ -909,7 +978,7 @@ configuration or data files are not writable.</p>
       <td>&nbsp;</td>
     </tr>
     <tr class="backdropped">
-      <td colspan="3" align="right"><i>Desktops</i></td>
+      <td colspan="3" class="subheader">Desktops</td>
     </tr>
     <tr>
       <td><a href="http://solair.eunet.rs/~vdjole/teradesk.htm">Teradesk desktop</a></td>
@@ -922,7 +991,7 @@ configuration or data files are not writable.</p>
       <td>&nbsp;</td>
     </tr>
     <tr class="backdropped">
-      <td colspan="3" align="right"><i>Science</i></td>
+      <td colspan="3" class="subheader">Science</td>
     </tr>
     <tr>
       <td>Euler</td>
@@ -940,7 +1009,7 @@ configuration or data files are not writable.</p>
       <td>&nbsp;</td>
     </tr>
     <tr class="backdropped">
-      <td colspan="3" align="right"><i>Utilities</i></td>
+      <td colspan="3" class="subheader">Utilities</td>
     </tr>
     <tr>
       <td>Revenge Document Displayer</td>
@@ -978,7 +1047,7 @@ configuration or data files are not writable.</p>
       <td>&nbsp;</td>
     </tr>
     <tr class="backdropped">
-      <td colspan="3" align="right"><i>Others</i></td>
+      <td colspan="3" class="subheader">Others</td>
     </tr>
     <tr>
       <td>ZX Spectrum emulator</td>
@@ -992,35 +1061,38 @@ configuration or data files are not writable.</p>
   </tbody>
 </table>
 
-<a name="midinotes"></a><h4>Midi setup</h4>
+<h3 id="Midi_setup">Midi setup</h3>
 
 <p>If you don't have a MIDI sequencer, on Linux you can use
 a softsynth like Timidity or FluidSynth instead (if your distribution
-supports ALSA). For instructions, see midi-linux.txt file.</p>
+supports ALSA). For instructions, see the
+<a href="midi-linux.txt">midi-linux.txt</a> file.</p>
 
 
-<a name="STE"></a><h2>STE software compatibility list</h2>
+<h2>STE software compatibility list</h2>
 
 <p>By default everything should work with the STE emulation.  The lists
 below contain nearly all the STE specific software that the developers
 could get their hands on...</p>
 
 
-<a name="STE games"></a><h4>STE games</h4>
+<h3>STE games</h3>
 
 <p>First are some STE games that do work with the STE features
 in Hatari.  Most of these games work only on STE, but here are also some
 games which work (or have a version that works) also on ST, i.e. they
 are just STE enhanced.  These are marked with '*'.</p>
 
-<table border="1" cellpadding="3">
-  <caption align="bottom">Tested STE games</caption>
-  <tbody>
+<table border="1">
+  <caption>Tested STE games</caption>
+  <thead>
     <tr class="backdropped">
-      <td align="center">Title</td>
-      <td align="center">Hatari version</td>
-      <td align="center">Notes</td>
+      <th>Title</th>
+      <th>Hatari version</th>
+      <th>Notes</th>
     </tr>
+  </thead>
+  <tbody>
     <tr>
       <td><a href="http://pouet.net/prod.php?which=54847">4K Pacman</a></td>
       <td>1.4</td>
@@ -1227,24 +1299,27 @@ are just STE enhanced.  These are marked with '*'.</p>
       <td><a href="http://www.umich.edu/~archive/atari/Games/Space/zero_5.zip">Zero-5 (demo)</a></td>
       <td class="minor">1.4</td>
       <td>STE DMA sound, Blitter and palette.  STE joypad works, but
-      there are issues in mouse control. Flicker and wrong colors on
-      the bottom part of the in-game screen</td>
+      there are issues in mouse control. With Hatari versions earlier
+      than v1.7 there's flicker and wrong colors on the bottom part
+      of the in-game screen</td>
     </tr>
   </tbody>
 </table>
 
-<a name="STE demos"></a><h4>STE demos</h4>
+<h3>STE demos</h3>
 
 <p>Blitter emulation cycle-accuracy is an issue for some demos.</p>
 
-<table border="1" cellpadding="3">
-  <caption align="bottom">Tested STE demos</caption>
-  <tbody>
+<table border="1">
+  <caption>Tested STE demos</caption>
+  <thead>
     <tr class="backdropped">
-      <td align="center">Demo</td>
-      <td align="center">Hatari version</td>
-      <td align="center">Notes</td>
+      <th>Demo</th>
+      <th>Hatari version</th>
+      <th>Notes</th>
     </tr>
+  </thead>
+  <tbody>
     <tr>
       <td>Aggression:
       <a href="http://pouet.net/prod.php?which=29352">Armada is dead</a></td>
@@ -1326,6 +1401,12 @@ are just STE enhanced.  These are marked with '*'.</p>
       <td>1.6.2</td>
       <td>The Greeting Parts requires Hatari 1.6.2 to work, it will flicker sometimes
 	  but that's a bug in the demo, not in Hatari</td>
+    </tr>
+    <tr>
+      <td>Dune/Sector One:
+      <a href="http://www.pouet.net/prod.php?which=60831">UFO</a></td>
+      <td>1.7</td>
+      <td>Requires --fastfdc off</td>
     </tr>
     <tr>
       <td>Electronic Images:
@@ -1559,17 +1640,19 @@ are just STE enhanced.  These are marked with '*'.</p>
   </tbody>
 </table>
 
-<a name="STE applications"></a><h4>STE applications</h4>
+<h3>STE applications</h3>
 
 <p>Finally some STE only or STE enhanced applications.</p>
-<table border="1" cellpadding="3">
-  <caption align="bottom">tested STE applications</caption>
-  <tbody>
+<table border="1">
+  <caption>tested STE applications</caption>
+  <thead>
     <tr class="backdropped">
-      <td align="center">Application</td>
-      <td align="center">Hatari version</td>
-      <td align="center">Notes</td>
+      <th>Application</th>
+      <th>Hatari version</th>
+      <th>Notes</th>
     </tr>
+  </thead>
+  <tbody>
     <tr>
       <td><a href="http://www.pouet.net/prod.php?which=56822">Hextracker</a></td>
       <td>1.5</td>
@@ -1602,22 +1685,24 @@ are just STE enhanced.  These are marked with '*'.</p>
 </table>
 
 
-<a name="TT"></a><h2>TT software compatibility list</h2>
+<h2>TT software compatibility list</h2>
 
 <p>Most programs that work on TT work also in the Falcon emulation and
 as all 1-8 bit GEM programs work without problems under TT emulation
 this section lists only TT-specific games and demos.</p>
 
-<a name="TT games"></a><h4>TT games</h4>
+<h3>TT games</h3>
 
-<table border="1" cellpadding="3">
-  <caption align="bottom">TT games</caption>
-  <tbody>
+<table border="1">
+  <caption>TT games</caption>
+  <thead>
     <tr class="backdropped">
-      <td align="center">Game</td>
-      <td align="center">Hatari version</td>
-      <td align="center">Notes</td>
+      <th>Game</th>
+      <th>Hatari version</th>
+      <th>Notes</th>
     </tr>
+  </thead>
+  <tbody>
     <tr>
       <td><a href="http://yescrew.atari.org/eng/products.htm#capy">Capy</a></td>
       <td class="major">1.2</td>
@@ -1633,16 +1718,18 @@ this section lists only TT-specific games and demos.</p>
   </tbody>
 </table>
 
-<a name="TT demos"></a><h4>TT demos</h4>
+<h3>TT demos</h3>
 
-<table border="1" cellpadding="3">
-  <caption align="bottom">TT demos</caption>
-  <tbody>
+<table border="1">
+  <caption>TT demos</caption>
+  <thead>
     <tr class="backdropped">
-      <td align="center">Demo</td>
-      <td align="center">Hatari version</td>
-      <td align="center">Notes</td>
+      <th>Demo</th>
+      <th>Hatari version</th>
+      <th>Notes</th>
     </tr>
+  </thead>
+  <tbody>
     <tr>
       <td>Brainstorm:
       <a href="http://www.pouet.net/prod.php?which=15752">Adebug 3DTT demo</a></td>
@@ -1701,15 +1788,15 @@ this section lists only TT-specific games and demos.</p>
 </table>
 
 
-<a name="Falcon"></a><h2>Falcon software compatibility list</h2>
+<h2>Falcon software compatibility list</h2>
 
 <p>You can select between three different DSP emulation modes with
 the Hatari "--dsp" option:
 <ul>
   <li><b>none</b>: No emulation.
       If program doesn't need/use DSP, this is the best option.</li>
-  <li><b>emu</b>: Experimental DSP emulation.
-      Needed if program requires DSP. Slow.</li>
+  <li><b>emu</b>: Experimental DSP emulation.  Needed if program
+      requires DSP. On by default for Falcon. Slow.</li>
   <li><b>dummy</b>: Faked DSP response to DSP commands.
       Some rare programs that need DSP may also work with faked DSP.
       This is much faster than the real DSP emulation.</li>
@@ -1728,19 +1815,20 @@ NoCrew's DSP MP2-player) that are marked as working in the list below,
 <em>work only with the experimental WinUAE core</em>. Please see
 Hatari readme.txt on how to enable that.</p>
 
-<a name="Falcon games"></a><h4>Falcon games</h4>
+<h3>Falcon games</h3>
 
-<p>Here are listed some Falcon games:</p>
-<table border="1" cellpadding="3">
-  <caption align="bottom">Falcon games</caption>
-  <tbody>
+<table border="1">
+  <caption>Falcon games</caption>
+  <thead>
     <tr class="backdropped">
-      <td align="center">Title</td>
-      <td align="center">Hatari version</td>
-      <td align="center">Sound</td>
-      <td align="center">DSP</td>
-      <td align="center">Comment</td>
+      <th>Title</th>
+      <th>Hatari version</th>
+      <th>Sound</th>
+      <th>DSP</th>
+      <th>Comment</th>
     </tr>
+  </thead>
+  <tbody>
     <tr>
       <td><a href="http://logitron.atari.online.fr/aazohm_english.htm">Aazohm Krypth</a></td>
       <td>1.3</td>
@@ -1789,7 +1877,7 @@ Hatari readme.txt on how to enable that.</p>
       <td>1.4</td>
       <td>yes</td>
       <td>-</td>
-      <td>Background music works if DSP emu enabled</td>
+      <td>Background music if DSP emu enabled</td>
     </tr>
     <tr>
       <td>Bomb Squad</td>
@@ -1810,7 +1898,7 @@ Hatari readme.txt on how to enable that.</p>
       <td>1.4</td>
       <td>yes</td>
       <td>-</td>
-      <td>Background music works if DSP emu enabled</td>
+      <td>Background music if DSP emu enabled</td>
     </tr> 
     <tr>
       <td><a href="http://rg.atari.org/game.htm">Bunion</a></td>
@@ -1826,7 +1914,7 @@ Hatari readme.txt on how to enable that.</p>
       <td>-</td>
       <td>Some menus are black (space gets through them).
           After playing a while: "IKBD buffer is full!" (with WinUAE).
-	  Screen bottom has garbage. Background music works only with DSP emu</td>
+	  Screen bottom has garbage. Background music with DSP emu</td>
     </tr>
     <tr>
       <td><a href="http://paradize.final-memory.org/games.shtml">ChainZ</a></td>
@@ -1900,11 +1988,11 @@ Hatari readme.txt on how to enable that.</p>
       <td></td>
     </tr> 
    <tr>
-      <td>Evolution Dino Dudes<br>(aka. Humans)</td>
+      <td>Evolution Dino Dudes<br />(aka. Humans)</td>
       <td class="major">1.3</td>
       <td>-</td>
       <td>-</td>
-      <td>Intro and menu work, but graphics are distorted in game.<br>
+      <td>Intro and menu work, but graphics are distorted in game.<br />
           (Game writes twice to the $ff820e register during one VBL!)</td>
     </tr>
     <tr>
@@ -1970,7 +2058,7 @@ Hatari readme.txt on how to enable that.</p>
       <td>1.3</td>
       <td>yes</td>
       <td>-</td>
-      <td>Nice breakout clone.  Has background music if DSP emu enabled</td>
+      <td>Nice breakout clone.  Background music if DSP emu enabled</td>
     </tr>
     <tr>
       <td>Ishar 3 (CD)</td>
@@ -2225,10 +2313,10 @@ Hatari readme.txt on how to enable that.</p>
     </tr>
     <tr>
       <td>Reeking Rubber</td>
-      <td class="major">1.4</td>
+      <td>1.8</td>
+      <td>yes</td>
       <td>-</td>
-      <td>-</td>
-      <td>Doesn't do anything. Issue with VIDEL</td>
+      <td>(required proper emulation of Videl palette registers at startup)</td>
     </tr>
     <tr>
       <td>Risk 030</td>
@@ -2330,6 +2418,13 @@ Hatari readme.txt on how to enable that.</p>
       <td>Use STE joypad. Background music if DSP emu enabled</td>
     </tr>
     <tr>
+      <td>Sweety Things</td>
+      <td>1.6</td>
+      <td>yes</td>
+      <td>-</td>
+      <td>Background music if DSP emu enabled</td>
+    </tr>
+    <tr>
       <td><a href="http://pouet.net/prod.php?which=52226">Switch</a></td>
       <td>1.0</td>
       <td>yes</td>
@@ -2341,7 +2436,7 @@ Hatari readme.txt on how to enable that.</p>
       <td>1.4</td>
       <td>yes</td>
       <td>-</td>
-      <td>Background music works if DSP emu enabled</td>
+      <td>Background music if DSP emu enabled</td>
     </tr>
     <tr>
       <td>Tank Blaster</td>
@@ -2452,6 +2547,13 @@ Hatari readme.txt on how to enable that.</p>
       <td>Asteroids clone</td>
     </tr>
     <tr>
+      <td>X-moon</td>
+      <td>1.7</td>
+      <td>yes</td>
+      <td>-</td>
+      <td>Works only with WinUAE core. Needs Joypad. Game stop while fire is pressed. Background music if DSP emu enabled</td>
+    </tr>
+    <tr>
       <td>Zodiax (demo)</td>
       <td>1.0</td>
       <td>yes</td>
@@ -2462,19 +2564,25 @@ Hatari readme.txt on how to enable that.</p>
 </table>
 
 
-<a name="Falcon demos"></a><h4>Falcon demos</h4>
+<h3>Falcon demos</h3>
 
-<p>Here are listed some Falcon demos:</p>
-<table border="1" cellpadding="3">
-  <caption align="bottom">Falcon demos</caption>
-  <tbody>
+<p>Some demos require FPU, although normal Falcon's don't have a one.
+Old UAE CPU core always emulates FPU both for TT and Falcon machines.
+WinUAE CPU core does that only for TT, but but you can enable FPU
+also for Falcon if demo is stated to require that.</p>
+
+<table border="1">
+  <caption>Falcon demos</caption>
+  <thead>
     <tr class="backdropped">
-      <td align="center">Title</td>
-      <td align="center">Hatari version</td>
-      <td align="center">Sound</td>
-      <td align="center">DSP</td>
-      <td align="center">Comment</td>
+      <th>Title</th>
+      <th>Hatari version</th>
+      <th>Sound</th>
+      <th>DSP</th>
+      <th>Comment</th>
     </tr>
+  </thead>
+  <tbody>
     <tr>
       <td>Aggression:
       <a href="http://www.pouet.net/prod.php?which=13699">Agressive II party info</a></td>
@@ -2540,7 +2648,7 @@ Hatari readme.txt on how to enable that.</p>
       <td>yes</td>
       <td>-</td>
       <td>AVR animation/music with Brainstorm player.
-          Background music works only with DSP</td>
+          Background music with DSP emu</td>
     </tr>
     <tr>
       <td>Collapze:
@@ -2564,7 +2672,7 @@ Hatari readme.txt on how to enable that.</p>
       <td class="minor">1.6</td>
       <td>yes</td>
       <td>emu</td>
-      <td>VGA only. Freaky screen works only with old UAE core. Land &amp; Worship screens bomb</td>
+      <td>Freaky screen works only with old UAE core. Land &amp; Worship screens bomb</td>
     </tr>
     <tr>
       <td>Cruor:
@@ -2584,11 +2692,44 @@ Hatari readme.txt on how to enable that.</p>
     </tr>
     <tr>
       <td>DHS:
+      <a href="http://www.pouet.net/prod.php?which=1760">128dist</a></td>
+      <td>1.7</td>
+      <td>-</td>
+      <td>-</td>
+      <td>Requires FPU</td>
+    </tr>
+    <tr>
+      <td>DHS:
+      <a href="http://files.dhs.nu/demos/128krawl.zip">128 krawl</a></td>
+      <td>1.7</td>
+      <td>-</td>
+      <td>-</td>
+      <td>Requires FPU</td>
+    </tr>
+    <tr>
+      <td>DHS:
+      <a href="http://www.pouet.net/prod.php?which=1004">4ever</a></td>
+      <td>1.7</td>
+      <td>-</td>
+      <td>-</td>
+      <td>Requires FPU</td>
+    </tr>
+    <tr>
+      <td>DHS:
+      <a href="http://www.pouet.net/prod.php?which=986">4orce</a></td>
+      <td>1.7</td>
+      <td>yes</td>
+      <td>-</td>
+      <td>Requires FPU</td>
+    </tr>
+    <tr>
+      <td>DHS:
       <a href="http://www.pouet.net/prod.php?which=985">A.T.S</a></td>
       <td>1.0</td>
       <td>yes</td>
       <td>-</td>
-      <td>Fast. Background music with DSP emu</td>
+      <td>Fast. Needs FPU. Background music with DSP emu.
+          Sometimes crashes with WinUAE CPU core</td>
     </tr>
     <tr>
       <td>DHS:
@@ -2596,11 +2737,27 @@ Hatari readme.txt on how to enable that.</p>
       <td>1.5</td>
       <td>-</td>
       <td>-</td>
-      <td>Needs 14MB RAM, uses NoCrew DSP MP2-player</td>
+      <td>Needs 14MB RAM and FPU. Uses NoCrew DSP MP2-player</td>
     </tr>
     <tr>
       <td>DHS:
-      <a href="http://http://gemdemo.atari.org/">GEM-demo</a></td>
+      <a href="http://files.dhs.nu/demos/dreamdim11.zip">Dream Dimension</a></td>
+      <td>1.7</td>
+      <td>yes</td>
+      <td>emu</td>
+      <td>Requires FPU</td>
+    </tr>
+    <tr>
+      <td>DHS:
+      <a href="http://www.pouet.net/prod.php?which=9662">Echos</a></td>
+      <td>1.7</td>
+      <td>yes</td>
+      <td>emu</td>
+      <td>Requires FPU. Uses DSP for the music</td>
+    </tr>
+    <tr>
+      <td>DHS:
+      <a href="http://gemdemo.atari.org/">GEM-demo</a></td>
       <td>1.3</td>
       <td>-</td>
       <td>-</td>
@@ -2851,6 +3008,14 @@ Hatari readme.txt on how to enable that.</p>
       <td></td>
     </tr>
     <tr>
+      <td>Mind Design:
+      <a href="http://www.pouet.net/prod.php?which=28761">4some</a></td>
+      <td>1.7</td>
+      <td>-</td>
+      <td>-</td>
+      <td>Requires FPU. Sometimes hangs with WinUAE CPU core</td>
+    </tr>
+    <tr>
       <td>MJJ Prod:
       <a href="http://pouet.net/prod.php?which=28764">Bound 42</a></td>
       <td>1.4</td>
@@ -2884,12 +3049,28 @@ Hatari readme.txt on how to enable that.</p>
       <td>Requires WinUAE CPU core</td>
     </tr>
     <tr>
+      <td>Mystic bytes:
+      <a href="http://www.pouet.net/prod.php?which=28778">Virtual Dream</a></td>
+      <td class="major">1.7</td>
+      <td>-</td>
+      <td>-</td>
+      <td>Requires FPU. Crashes with bus error after a few seconds</td>
+    </tr>
+    <tr>
       <td>New Beat:
-      <a href="http://newbeat.atari.org/main.php?page=productions">Blue &amp; Flu</a></td>
+      <a href="http://newbeat.atari.org/main.php?page=productions">Blue</a></td>
       <td>1.1</td>
       <td>-</td>
       <td>-</td>
-      <td>Very nice 4K demos from New Beat</td>
+      <td>Very nice 4K demo from New Beat</td>
+    </tr>
+    <tr>
+      <td>New Beat:
+      <a href="http://newbeat.atari.org/main.php?page=productions">Flu</a></td>
+      <td>1.1</td>
+      <td>yes</td>
+      <td>-</td>
+      <td>Very nice 4K demo from New Beat. Flu requires FPU</td>
     </tr>
     <tr>
       <td>New Beat:
@@ -3006,10 +3187,12 @@ Hatari readme.txt on how to enable that.</p>
     <tr>
       <td>Trio:
       <a href="http://www.pouet.net/prod.php?which=15974">X-tasie</a></td>
-      <td class="major">1.6</td>
+      <td class="minor">1.7</td>
       <td>-</td>
       <td>-</td>
-      <td>With old UAE, quits without doing anything (requires 030 MMU), with WinUAE, black screen</td>
+      <td>Demo requires 030 MMU, i.e. it only runs with WinUAE CPU core and when
+          MMU has been enabled. There is a Videl emulation problem left when
+          the user moves the mouse during the first screen.</td>
     </tr>
     <tr>
       <td>tSCc:
@@ -3080,6 +3263,14 @@ Hatari readme.txt on how to enable that.</p>
       <td>Julia fractals</td>
     </tr>
     <tr>
+      <td>Wildfire:
+      <a href="http://www.pouet.net/prod.php?which=16820">4tune</a></td>
+      <td>1.7</td>
+      <td>-</td>
+      <td>emu</td>
+      <td>Requires FPU and DSP</td>
+    </tr>
+    <tr>
       <td>Birdshow</td>
       <td>1.0</td>
       <td>-</td>
@@ -3095,18 +3286,20 @@ and demo tools from the dhs.nu <a href="http://dhs.nu/">demoscene</a>
 site.</p>
 
 
-<a name="Falcon applications"></a><h4>Falcon applications</h4>
+<h3>Falcon applications</h3>
 
 <p>Here are listed some <em>Falcon specific</em> applications:</p>
-<table border="1" cellpadding="3">
-  <caption align="bottom">Falcon applications</caption>
-  <tbody>
+<table border="1">
+  <caption>Falcon applications</caption>
+  <thead>
     <tr class="backdropped">
-      <td align="center">Title</td>
-      <td align="center">Hatari version</td>
-      <td align="center">DSP</td>
-      <td align="center">Comment</td>
+      <th>Title</th>
+      <th>Hatari version</th>
+      <th>DSP</th>
+      <th>Comment</th>
     </tr>
+  </thead>
+  <tbody>
     <tr>
       <td><a href="http://newbeat.atari.org/main.php?page=productions">AceMidi</a>
           (demo)</td>
@@ -3248,18 +3441,26 @@ site.</p>
 </table>
 
 
-<a name="TT/Falcon utilities"></a><h2>TT/Falcon utilities</h2>
+<h2>TT/Falcon utilities</h2>
 
 <p>Here are some utilities that either have specific TT and/or Falcon
 support or work only on them.</p>
 
-<table border="1" cellpadding="3">
-  <caption align="bottom">TT/Falcon utilities</caption>
-  <tbody>
+<table border="1">
+  <caption>TT/Falcon utilities</caption>
+  <thead>
     <tr class="backdropped">
-      <td align="center">Utility</td>
-      <td align="center">Hatari version</td>
-      <td align="center">Notes</td>
+      <th>Utility</th>
+      <th>Hatari version</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="http://adebug.sourceforge.net/">Adebug (reloaded)</a></td>
+      <td>1.7</td>
+      <td>Debugger supporting 68000 - 68030.  On Falcon and TT this
+          uses MMU i.e. requires WinUAE CPU core</td>
     </tr>
     <tr>
       <td>Calamus SL (1991 demo)</td>
@@ -3271,17 +3472,17 @@ support or work only on them.</p>
       32MB RAM</td>
     </tr>
     <tr>
+      <td><a href="http://centek.free.fr/atari/softs/s_cecile.htm">Cecile</a></td>
+      <td>1.2</td>
+      <td>Hard disk driver.  In Hatari works only with IDE emulation.
+          Supports only TT and Falcon</td>
+    </tr>
+    <tr>
       <td><a href="http://freemint.de/en/">FreeMiNT</a></td>
       <td>1.2</td>
       <td>Needs to be installed/booted from an ACSI or IDE HD image and
       memory protection needs to be disabled (Hatari old UAE core doesn't
       emulate MMU)</td>
-    </tr>
-    <tr>
-      <td><a href="http://centek.free.fr/atari/softs/s_cecile.htm">Cecile</a></td>
-      <td>1.2</td>
-      <td>Hard disk driver.  In Hatari works only with IDE emulation.
-          Supports only TT and Falcon</td>
     </tr>
     <tr>
       <td><a href="http://www.seimet.de/atari/en/hddriver.html">HD Driver</a></td>
@@ -3294,10 +3495,8 @@ support or work only on them.</p>
   </tbody>
 </table>
 
-<br>
 
-
-<a name="Software"></a><h2>Software sites</h2>
+<h2>Software sites</h2>
 
 <p>In case you're new to the Atari scene or an old-timer who's forgotten
 where all the freely available software is, these file archive sites
@@ -3305,22 +3504,21 @@ still retain their Atari sections:</p>
 <ul>
 <li><a href="http://ftp.funet.fi/pub/atari/">funet.fi</a></li>
 <li><a href="http://www-ftp.lip6.fr/pub/atari/">lip6.fr</a></li>
+<li><a href="ftp://ftp.cs.tu-berlin.de/pub/atari/">tu-berlin.de</a></li>
 <li><a href="http://www.umich.edu/~archive/atari/">umich.edu</a></li>
+<li><a href="http://no-fragments.atari.org/no_fragments_04/archive/">no-fragments</a> (Falcon SW)</li>
 </ul>
 
+<p>Demos (for many platforms) can be found from pouet.net and
+besides Atari scene news, Dead Hackers Society provides descriptions,
+screenshots and files for tools to create music, graphics and code on
+Atari:
+<ul>
+<li><a href="http://pouet.net/">pout.net</a>
+<li><a href="http://dhs.nu/files.php">dhs.nu</a></li>
+</ul>
 
-<hr style="width: 100%; height: 2px;">
-<table border="0" width="100%">
-  <tbody>
-    <tr>
-      <td align="left"><a href="http://validator.w3.org/check/referer"><img
- src="http://www.w3.org/Icons/valid-html401" alt="Valid HTML 4.01!"
- border="0" height="31" width="88"></a></td>
-      <td align="right">
-      Hatari development team, June 2012
-      </td>
-    </tr>
-  </tbody>
-</table>
+<hr>
+
 </body>
 </html>

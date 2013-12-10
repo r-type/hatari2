@@ -1,8 +1,8 @@
 /*
   Hatari - floppy.c
 
-  This file is distributed under the GNU General Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   This is where we read/write sectors to/from the disk image buffers.
   NOTE: these buffers are in memory so we only need to write routines for
@@ -42,6 +42,7 @@ const char Floppy_fileid[] = "Hatari floppy.c : " __DATE__ " " __TIME__;
 #include "zip.h"
 #include "screen.h"
 #include "video.h"
+#include "fdc.h"
 
 
 /* Emulation drive details, eg FileName, Inserted, Changed etc... */
@@ -483,27 +484,6 @@ int	Floppy_DriveTransitionUpdateState ( int Drive )
 
 /*-----------------------------------------------------------------------*/
 /**
- * Handle a write in the IO_PORTA register $E through $ff8802. Only bits
- * 0-2 are available here, others are masked to 0.
- * bit 0 : side select
- * bit 1-2 : drive select
- * - We don't do anything for the internal fdc emulation, as it directly uses
- *   the IO_PORTA's value.
- * - We forward the change to IPF emulation, as it doesn't have direct access
- *   to this IO_PORTA register.
- */
-void	Floppy_SetDriveSide ( Uint8 io_porta_old , Uint8 io_porta_new )
-{
-	if ( io_porta_old == io_porta_new )
-		return;						/* No change */
-
-
-	IPF_SetDriveSide ( io_porta_old , io_porta_new );	/* Forward change to IPF emulation */
-}
-
-
-/*-----------------------------------------------------------------------*/
-/**
  * Insert previously set disk file image into floppy drive.
  * The WHOLE image is copied into Hatari drive buffers, and
  * uncompressed if necessary.
@@ -568,6 +548,8 @@ bool Floppy_InsertDiskIntoDrive(int Drive)
 	EmulationDrives[Drive].bContentsChanged = false;
 	EmulationDrives[Drive].bOKToSave = Floppy_IsBootSectorOK(Drive);
 	Floppy_DriveTransitionSetState ( Drive , FLOPPY_DRIVE_TRANSITION_STATE_INSERT );
+	FDC_InsertFloppy ( Drive );
+
 	Log_Printf(LOG_INFO, "Inserted disk '%s' to drive %c:.",
 		   filename, 'A'+Drive);
 	return true;
@@ -620,6 +602,7 @@ bool Floppy_EjectDiskFromDrive(int Drive)
 			   'A'+Drive);
 
 		Floppy_DriveTransitionSetState ( Drive , FLOPPY_DRIVE_TRANSITION_STATE_EJECT );
+		FDC_EjectFloppy ( Drive );
 		bEjected = true;
 	}
 

@@ -1,8 +1,8 @@
 /*
   Hatari - sdlgui.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   A tiny graphical user interface for Hatari.
 */
@@ -150,7 +150,7 @@ int SDLGui_SetScreen(SDL_Surface *pScrn)
 
 	if (pFontGfx == NULL)
 	{
-		fprintf(stderr, "Error: A problem with the font occured!\n");
+		fprintf(stderr, "Error: A problem with the font occurred!\n");
 		return -1;
 	}
 
@@ -191,7 +191,7 @@ void SDLGui_CenterDlg(SGOBJ *dlg)
 void SDLGui_Text(int x, int y, const char *txt)
 {
 	int i;
-	char c;
+	unsigned char c;
 	SDL_Rect sr, dr;
 
 	for (i=0; txt[i]!=0; i++)
@@ -681,7 +681,7 @@ static int SDLGui_SearchFlaggedButton(const SGOBJ *dlg, int flag)
 /*-----------------------------------------------------------------------*/
 /**
  * Show and process a dialog. Returns the button number that has been
- * pressed or SDLGUI_UNKNOWNEVENT if an unsupported event occured (will be
+ * pressed or SDLGUI_UNKNOWNEVENT if an unsupported event occurred (will be
  * stored in parameter pEventOut).
  */
 int SDLGui_DoDialog(SGOBJ *dlg, SDL_Event *pEventOut)

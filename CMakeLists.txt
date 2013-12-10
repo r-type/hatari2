@@ -96,7 +96,7 @@ if(READLINE_FOUND)
 	set(CMAKE_REQUIRED_LIBRARIES "")
 endif(READLINE_FOUND)
 
-find_package(ZLIB REQUIRED)
+find_package(ZLIB)
 if(ZLIB_FOUND)
 	set(HAVE_LIBZ 1)
 	set(HAVE_ZLIB_H 1)
@@ -107,10 +107,12 @@ if(PNG_FOUND)
 	set(HAVE_LIBPNG 1)
 endif(PNG_FOUND)
 
-find_package(X11)
-if(X11_FOUND)
-	set(HAVE_X11 1)
-endif(X11_FOUND)
+if (NOT ENABLE_OSX_BUNDLE)
+	find_package(X11)
+	if(X11_FOUND)
+		set(HAVE_X11 1)
+	endif(X11_FOUND)
+endif()
 
 find_package(PortAudio)
 if(PORTAUDIO_FOUND)
@@ -169,6 +171,8 @@ check_function_exists(nanosleep HAVE_NANOSLEEP)
 check_function_exists(alphasort HAVE_ALPHASORT)
 check_function_exists(scandir HAVE_SCANDIR)
 check_function_exists(statvfs HAVE_STATVFS)
+check_function_exists(fseeko HAVE_FSEEKO)
+check_function_exists(ftello HAVE_FTELLO)
 
 # #############
 # Other CFLAGS:
@@ -237,7 +241,14 @@ if(NOT ETCDIR)
 		set(ETCDIR /etc)
 	endif()
 endif()
-add_definitions(-DCONFDIR=\"${ETCDIR}\")
+
+if(ENABLE_OSX_BUNDLE)
+	# Use OSX native alert windows and put the config files in the app's bundle
+	add_definitions(-DALERT_HOOKS=1)
+	add_definitions(-DCONFDIR=\"../Resources\")
+else()
+	add_definitions(-DCONFDIR=\"${ETCDIR}\")
+endif()
 
 # #########################################
 # Create config.h and recurse into subdirs:

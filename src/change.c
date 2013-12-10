@@ -1,8 +1,8 @@
 /*
   Hatari - change.c
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   This code handles run-time configuration changes. We keep all our
   configuration details in a structure called 'ConfigureParams'.  Before
@@ -19,6 +19,7 @@ const char Change_fileid[] = "Hatari change.c : " __DATE__ " " __TIME__;
 #include "change.h"
 #include "dialog.h"
 #include "floppy.h"
+#include "fdc.h"
 #include "gemdos.h"
 #include "hdc.h"
 #include "ide.h"
@@ -103,15 +104,21 @@ bool Change_DoNeedReset(CNF_PARAMS *current, CNF_PARAMS *changed)
 	/* Did change machine type? */
 	if (changed->System.nMachineType != current->System.nMachineType)
 		return true;
+	/* did change ST Blitter? */
+	else if (current->System.nMachineType == MACHINE_ST &&
+		 current->System.bBlitter != changed->System.bBlitter)
+		return true;
 
 #if ENABLE_DSP_EMU
 	/* enabling DSP needs reset (disabling it not) */
 	if (current->System.nDSPType != DSP_TYPE_EMU &&
 	    changed->System.nDSPType == DSP_TYPE_EMU)
-	{
 		return true;
-	}
 #endif
+
+	/* did change CPU type? */
+	if (changed->System.nCpuLevel != current->System.nCpuLevel)
+		return true;
 
 #if ENABLE_WINUAE_CPU
 	/* Did change CPU address mode? */
@@ -137,6 +144,10 @@ bool Change_DoNeedReset(CNF_PARAMS *current, CNF_PARAMS *changed)
 
 	/* Did change size of memory? */
 	if (current->Memory.nMemorySize != changed->Memory.nMemorySize)
+		return true;
+
+	/* MIDI related IRQs start/stop needs reset */
+	if (current->Midi.bEnableMidi != changed->Midi.bEnableMidi)
 		return true;
 
 	return false;
@@ -225,6 +236,11 @@ void Change_CopyChangedParamsToConfiguration(CNF_PARAMS *current, CNF_PARAMS *ch
 		else
 			bFloppyInsert[i] = false;
 	}
+
+	if ( changed->DiskImage.EnableDriveA != current->DiskImage.EnableDriveA )
+		FDC_EnableDrive ( 0 , changed->DiskImage.EnableDriveA );
+	if ( changed->DiskImage.EnableDriveB != current->DiskImage.EnableDriveB )
+		FDC_EnableDrive ( 1 , changed->DiskImage.EnableDriveB );
 
 	/* Did change GEMDOS drive? */
 	if (changed->HardDisk.bUseHardDiskDirectories != current->HardDisk.bUseHardDiskDirectories

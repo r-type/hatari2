@@ -100,6 +100,7 @@ fprintf ( stderr , "ipf load %d\n" , StructSize );
 		{
 			MemorySnapShot_Store(&IPF_State, sizeof(IPF_State));
 
+#ifdef HAVE_CAPSIMAGE
 			/* For IPF structures, we need to update some pointers in Fdc/Drive/CapsImage */
 			/* drive : PUBYTE trackbuf, PUDWORD timebuf */
 			/* fdc : PCAPSDRIVE driveprc, PCAPSDRIVE drive, CAPSFDCHOOK callback functions */
@@ -114,6 +115,7 @@ fprintf ( stderr , "ipf load %d\n" , StructSize );
 			IPF_State.Fdc.cbirq = IPF_CallBack_Irq;
 			IPF_State.Fdc.cbdrq = IPF_CallBack_Drq;
 			IPF_State.Fdc.cbtrk = IPF_CallBack_Trk;
+#endif
 
 			/* Call IPF_Insert to recompute IPF_State.CapsImage[ Drive ] */
 			for ( Drive=0 ; Drive < MAX_FLOPPYDRIVES ; Drive++ )
@@ -415,7 +417,7 @@ static void	IPF_CallBack_Irq ( struct CapsFdc *pc , CapsULong State )
 	LOG_TRACE(TRACE_FDC, "fdc ipf callback irq state=0x%x VBL=%d HBL=%d\n" , State , nVBLs , nHBL );
 
 	if ( State )
-		FDC_AcknowledgeInterrupt();		/* IRQ bit was set */
+		FDC_SetIRQ();				/* IRQ bit was set */
 	else
 		FDC_ClearIRQ();				/* IRQ bit was reset */
 }

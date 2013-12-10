@@ -1,8 +1,8 @@
 /*
   Hatari
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 
   Reset emulation state.
 */
@@ -16,6 +16,8 @@ const char Reset_fileid[] = "Hatari reset.c : " __DATE__ " " __TIME__;
 #include "fdc.h"
 #include "floppy.h"
 #include "gemdos.h"
+#include "hdc.h"
+#include "acia.h"
 #include "ikbd.h"
 #include "cycInt.h"
 #include "m68000.h"
@@ -28,6 +30,7 @@ const char Reset_fileid[] = "Hatari reset.c : " __DATE__ " " __TIME__;
 #include "stMemory.h"
 #include "tos.h"
 #include "vdi.h"
+#include "nvram.h"
 #include "video.h"
 #include "falcon/videl.h"
 #include "falcon/dsp.h"
@@ -41,8 +44,6 @@ const char Reset_fileid[] = "Hatari reset.c : " __DATE__ " " __TIME__;
  */
 static int Reset_ST(bool bCold)
 {
-	CyclesGlobalClockCounter = 0;		/* reset main clock counter */
-
 	if (bCold)
 	{
 		int ret;
@@ -59,12 +60,23 @@ static int Reset_ST(bool bCold)
 	MFP_Reset();                  /* Setup MFP chip */
 	Video_Reset();                /* Reset video */
 	VDI_Reset();                  /* Reset internal VDI variables */
+	NvRam_Reset();                /* reset NvRAM (video) settings */
 
 	GemDOS_Reset();               /* Reset GEMDOS emulation */
-	FDC_Reset();			/* Reset FDC */
+	if (bCold)
+	{
+		FDC_Reset( bCold );	/* Reset FDC */
+	}
 	Floppy_Reset();			/* Reset Floppy */
 
-	if (ConfigureParams.System.nMachineType == MACHINE_FALCON) {
+	if (ConfigureParams.System.nMachineType == MACHINE_FALCON
+	    || ConfigureParams.System.nMachineType == MACHINE_TT)
+	{
+		Ncr5380_Reset();
+	}
+
+	if (ConfigureParams.System.nMachineType == MACHINE_FALCON)
+	{
 		DSP_Reset();                  /* Reset the DSP */
 		Crossbar_Reset(bCold);        /* Reset Crossbar sound */
 	}
@@ -73,7 +85,8 @@ static int Reset_ST(bool bCold)
 
 	PSG_Reset();                  /* Reset PSG */
 	Sound_Reset();                /* Reset Sound */
-	IKBD_Reset(bCold);            /* Keyboard */
+	ACIA_Reset( ACIA_Array );     /* ACIA */
+	IKBD_Reset(bCold);            /* Keyboard (after ACIA) */
 	if (ConfigureParams.System.nMachineType == MACHINE_FALCON && !bUseVDIRes)
 		VIDEL_reset();
 	else

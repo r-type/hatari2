@@ -1,17 +1,12 @@
 /*
   Hatari - main.h
 
-  This file is distributed under the GNU Public License, version 2 or at
-  your option any later version. Read the file gpl.txt for details.
+  This file is distributed under the GNU General Public License, version 2
+  or at your option any later version. Read the file gpl.txt for details.
 */
 
 #ifndef HATARI_MAIN_H
 #define HATARI_MAIN_H
-
-
-/* Name and version for window title: */
-//#define PROG_NAME "Hatari devel (" __DATE__ ")"
-#define PROG_NAME "Hatari v1.6.2"
 
 #include "config.h"
 

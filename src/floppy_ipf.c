@@ -8,6 +8,9 @@
 
   IPF files are handled using the capsimage library, which emulates the FDC
   at low level and allows to read complex protections.
+
+  RAW files made with KryoFlux board or CT RAW dumped with an Amiga are also handled
+  by the capsimage library.
 */
 const char floppy_ipf_fileid[] = "Hatari floppy_ipf.c : " __DATE__ " " __TIME__;
 
@@ -23,7 +26,15 @@ const char floppy_ipf_fileid[] = "Hatari floppy_ipf.c : " __DATE__ " " __TIME__;
 #include "cycles.h"
 
 #ifdef HAVE_CAPSIMAGE
+#if CAPSIMAGE_VERSION == 5
+#include <caps5/CapsLibAll.h>
+#else
 #include <caps/fdc.h>
+#define CAPS_LIB_RELEASE	4
+#define CAPS_LIB_REVISION	2
+#endif
+/* Macro to check release and revision */
+#define	CAPS_LIB_REL_REV	( CAPS_LIB_RELEASE * 100 + CAPS_LIB_REVISION )
 #endif
 
 
@@ -37,6 +48,11 @@ typedef struct
 	struct CapsDrive 	Drive[ MAX_FLOPPYDRIVES ];	/* Physical drives */
 	CapsLong		CapsImage[ MAX_FLOPPYDRIVES ];	/* For the IPF disk images */
 
+	int			Rev_Track[ MAX_FLOPPYDRIVES ];	/* Needed to handle CAPSSetRevolution for type II/III commands */
+	int			Rev_Side[ MAX_FLOPPYDRIVES ];
+
+	bool			DriveEnabled[ MAX_FLOPPYDRIVES ];/* Is drive ON or OFF */
+
 	Sint64			FdcClock;			/* Current value of CyclesGlobalClockCounter */
 #endif
 } IPF_STRUCT;
@@ -49,6 +65,7 @@ static IPF_STRUCT	IPF_State;			/* All variables related to the IPF support */
 static void	IPF_CallBack_Trk ( struct CapsFdc *pc , CapsULong State );
 static void	IPF_CallBack_Irq ( struct CapsFdc *pc , CapsULong State );
 static void	IPF_CallBack_Drq ( struct CapsFdc *pc , CapsULong State );
+static void	IPF_Drive_Update_Enable ( void );
 #endif
 
 
@@ -137,12 +154,20 @@ fprintf ( stderr , "ipf load %d\n" , StructSize );
 
 /*-----------------------------------------------------------------------*/
 /**
- * Does filename end with a .IPF extension? If so, return true.
+ * Does filename end with a .IPF or .RAW or .CTR extension ? If so, return true.
+ * .RAW and .CTR support requires caps lib >= 5.1
  */
 bool IPF_FileNameIsIPF(const char *pszFileName, bool bAllowGZ)
 {
-	return(File_DoesFileExtensionMatch(pszFileName,".ipf")
-	       || (bAllowGZ && File_DoesFileExtensionMatch(pszFileName,".ipf.gz")));
+	return ( File_DoesFileExtensionMatch(pszFileName,".ipf" )
+		|| ( bAllowGZ && File_DoesFileExtensionMatch(pszFileName,".ipf.gz") )
+#if CAPS_LIB_REL_REV >= 501
+		|| File_DoesFileExtensionMatch(pszFileName,".raw" )
+		|| ( bAllowGZ && File_DoesFileExtensionMatch(pszFileName,".raw.gz") )
+		|| File_DoesFileExtensionMatch(pszFileName,".ctr" )
+		|| ( bAllowGZ && File_DoesFileExtensionMatch(pszFileName,".ctr.gz") )
+#endif
+		);
 }
 
 
@@ -214,7 +239,7 @@ bool	IPF_Init ( void )
 		fprintf ( stderr , "IPF : CAPSVersionInfo failed\n" );
 		return false;
         }
-	fprintf ( stderr , "IPF : capsimage library version release=%d revision=%d\n" , caps_vi.release , caps_vi.revision );
+	fprintf ( stderr , "IPF : capsimage library version release=%d revision=%d\n" , (int)caps_vi.release , (int)caps_vi.revision );
 	IPF_State.CapsLibRelease = caps_vi.release;
 	IPF_State.CapsLibRevision = caps_vi.revision;
 
@@ -225,6 +250,9 @@ bool	IPF_Init ( void )
 		IPF_State.Drive[ i ].type = sizeof ( struct CapsDrive );
 		IPF_State.Drive[ i ].rpm = CAPSDRIVE_35DD_RPM;
 		IPF_State.Drive[ i ].maxtrack = CAPSDRIVE_35DD_HST;
+
+		IPF_State.Rev_Track[ i ] = -1;
+		IPF_State.Rev_Side[ i ] = -1;
 	}
 
 	/* Init FDC with 2 physical drives */
@@ -240,8 +268,10 @@ bool	IPF_Init ( void )
 		return false;
 	}
 
-	/* 2 drives */
+	/* 2 drives by default */
 	IPF_State.Fdc.drivemax = MAX_FLOPPYDRIVES;
+	/* Update drives' state in case we have some drives ON or OFF in config or parameters */
+	IPF_Drive_Update_Enable ();
 
 	/* FDC clock */
 	IPF_State.Fdc.clockfrq = 8000000;
@@ -261,6 +291,20 @@ bool	IPF_Init ( void )
 
 
 /*
+ * Exit
+ */
+void	IPF_Exit ( void )
+{
+#ifndef HAVE_CAPSIMAGE
+#else
+	CAPSExit();
+#endif
+}
+
+
+
+
+/*
  * Init the ressources to handle the IPF image inserted into a drive (0=A: 1=B:)
  */
 bool	IPF_Insert ( int Drive , Uint8 *pImageBuffer , long ImageSize )
@@ -270,6 +314,7 @@ bool	IPF_Insert ( int Drive , Uint8 *pImageBuffer , long ImageSize )
 
 #else
 	CapsLong	ImageId;
+	CapsLong	ImageType;
 
 	ImageId = CAPSAddImage();
 	if ( ImageId < 0 )
@@ -278,7 +323,29 @@ bool	IPF_Insert ( int Drive , Uint8 *pImageBuffer , long ImageSize )
 		return false;
 	}
 
-	fprintf ( stderr , "IPF : IPF_Insert drive=%d buf=%p size=%ld imageid=%d\n" , Drive , pImageBuffer , ImageSize , ImageId );
+#if CAPS_LIB_REL_REV >= 501
+	ImageType = CAPSGetImageTypeMemory ( pImageBuffer , ImageSize );
+	if ( ImageType == citError )
+	{
+		fprintf ( stderr , "IPF : error CAPSGetImageTypeMemory\n" );
+		return false;
+	}
+	else if ( ImageType == citUnknown )
+	{
+		fprintf ( stderr , "IPF : unknown image type\n" );
+		return false;
+	}
+
+	fprintf ( stderr , "IPF : IPF_Insert drive=%d buf=%p size=%ld imageid=%d type=" , Drive , pImageBuffer , ImageSize , ImageId );
+	switch ( ImageType ) {
+		case citIPF:		fprintf ( stderr , "IPF\n" ); break;
+		case citCTRaw:		fprintf ( stderr , "CT RAW\n" ); break;
+		case citKFStream:	fprintf ( stderr , "KF STREAM\n" ) ; break;
+		case citDraft:		fprintf ( stderr , "DRAFT\n" ) ; break;
+		default :		fprintf ( stderr , "NOT SUPPORTED\n" );
+					return false;
+	}
+#endif
 
 	if ( CAPSLockImageMemory ( ImageId , pImageBuffer , (CapsULong)ImageSize , DI_LOCK_MEMREF ) == imgeOk )
 	{
@@ -305,7 +372,7 @@ bool	IPF_Insert ( int Drive , Uint8 *pImageBuffer , long ImageSize )
 			/* Some IPF disks are not correctly supported yet : display a warning */
 			if ( (int)cii.release == 3222 ) 				/* Sundog */
                 		Log_AlertDlg ( LOG_INFO , "'Sundog' is not correctly supported yet, it requires write access." );
-			else if ( (int)cii.release == 3058 ) 				/* Sundog */
+			else if ( (int)cii.release == 3058 ) 				/* Lethal Xcess */
                 		Log_AlertDlg ( LOG_INFO , "'Lethal Xcess' is not correctly supported yet, protection will fail" );
 		}
 	}
@@ -326,7 +393,12 @@ bool	IPF_Insert ( int Drive , Uint8 *pImageBuffer , long ImageSize )
 	
 	IPF_State.CapsImage[ Drive ] = ImageId;
 
-	IPF_State.Drive[ Drive ].diskattr |= ( CAPSDRIVE_DA_IN | CAPSDRIVE_DA_WP );	/* Disk inserted and write protected */
+	IPF_State.Drive[ Drive ].diskattr |= CAPSDRIVE_DA_IN;				/* Disk inserted, keep the value for "write protect" */
+
+	CAPSFdcInvalidateTrack ( &IPF_State.Fdc , Drive );				/* Invalidate previous buffered track data for drive, if any */
+
+	IPF_State.Rev_Track[ Drive ] = -1;						/* Invalidate previous track/side to handle revolution's count */
+	IPF_State.Rev_Side[ Drive ] = -1;
 
 	return true;
 #endif
@@ -345,6 +417,8 @@ bool	IPF_Eject ( int Drive )
 
 #else
 	fprintf ( stderr , "IPF : IPF_Eject drive=%d imageid=%d\n" , Drive , IPF_State.CapsImage[ Drive ] );
+
+	CAPSFdcInvalidateTrack ( &IPF_State.Fdc , Drive );				/* Invalidate previous buffered track data for drive, if any */
 
 	if ( CAPSUnlockImage ( IPF_State.CapsImage[ Drive ] ) < 0 )
 	{
@@ -401,7 +475,7 @@ static void	IPF_CallBack_Trk ( struct CapsFdc *pc , CapsULong State )
 		return;
 
 	LOG_TRACE(TRACE_FDC, "fdc ipf callback trk drive=%d buftrack=%d bufside=%d VBL=%d HBL=%d\n" , Drive ,
-		  pd->buftrack , pd->bufside , nVBLs , nHBL );
+		  (int)pd->buftrack , (int)pd->bufside , nVBLs , nHBL );
 
 	pd->ttype	= cti.type;
 	pd->trackbuf	= cti.trackbuf;
@@ -420,7 +494,7 @@ static void	IPF_CallBack_Trk ( struct CapsFdc *pc , CapsULong State )
 #ifdef HAVE_CAPSIMAGE
 static void	IPF_CallBack_Irq ( struct CapsFdc *pc , CapsULong State )
 {
-	LOG_TRACE(TRACE_FDC, "fdc ipf callback irq state=0x%x VBL=%d HBL=%d\n" , State , nVBLs , nHBL );
+	LOG_TRACE(TRACE_FDC, "fdc ipf callback irq state=0x%x VBL=%d HBL=%d\n" , (int)State , nVBLs , nHBL );
 
 	if ( State )
 		FDC_SetIRQ();				/* IRQ bit was set */
@@ -449,7 +523,7 @@ static void	IPF_CallBack_Drq ( struct CapsFdc *pc , CapsULong State )
 		Byte = FDC_DMA_FIFO_Pull ();		/* Get a byte from the DMA FIFO */
 		CAPSFdcWrite ( &IPF_State.Fdc , 3 , Byte );	/* Write to FDC's reg 3 */
 
-		LOG_TRACE(TRACE_FDC, "fdc ipf callback drq state=0x%x write byte 0x%02x VBL=%d HBL=%d\n" , State , Byte , nVBLs , nHBL );
+		LOG_TRACE(TRACE_FDC, "fdc ipf callback drq state=0x%x write byte 0x%02x VBL=%d HBL=%d\n" , (int)State , Byte , nVBLs , nHBL );
 	}
 
 	else						/* DMA read mode */
@@ -457,10 +531,43 @@ static void	IPF_CallBack_Drq ( struct CapsFdc *pc , CapsULong State )
 		Byte = CAPSFdcRead ( &IPF_State.Fdc , 3 );	/* Read from FDC's reg 3 */
 		FDC_DMA_FIFO_Push ( Byte );		/* Add byte to the DMA FIFO */
 
-		LOG_TRACE(TRACE_FDC, "fdc ipf callback drq state=0x%x read byte 0x%02x VBL=%d HBL=%d\n" , State , Byte , nVBLs , nHBL );
+		LOG_TRACE(TRACE_FDC, "fdc ipf callback drq state=0x%x read byte 0x%02x VBL=%d HBL=%d\n" , (int)State , Byte , nVBLs , nHBL );
 	}
 }
 #endif
+
+
+
+/*
+ * This function is used to enable/disable a drive when
+ * using the UI or command line parameters
+ *
+ * NOTE : for now, IPF only supports changing drive 1, drive 0
+ * is always ON.
+ */
+void    IPF_Drive_Set_Enable ( int Drive , bool value )
+{
+#ifndef HAVE_CAPSIMAGE
+	return;
+
+#else
+	IPF_State.DriveEnabled[ Drive ] = value;			/* Store the new state */
+
+	IPF_Drive_Update_Enable ();					/* Update IPF's internal state */
+#endif
+}
+
+
+/*
+ * Update IPF's internal state depending on which drives are ON or OFF
+ */
+static void	IPF_Drive_Update_Enable ( void )
+{
+	if ( IPF_State.DriveEnabled[ 1 ] )
+	        IPF_State.Fdc.drivemax = MAX_FLOPPYDRIVES;		/* should be 2 */
+	else
+	        IPF_State.Fdc.drivemax = MAX_FLOPPYDRIVES - 1;		/* should be 1 */
+}
 
 
 
@@ -518,6 +625,30 @@ void	IPF_FDC_WriteReg ( Uint8 Reg , Uint8 Byte )
 #else
 	LOG_TRACE(TRACE_FDC, "fdc ipf write reg=%d data=0x%x VBL=%d HBL=%d\n" , Reg , Byte , nVBLs , nHBL );
 
+	
+#if CAPS_LIB_REL_REV >= 501
+	/* In the case of CTR images, we must reset the revolution counter */
+	/* when a command access data on disk and track/side changed since last access */
+	if ( Reg == 0 )
+	{
+		int	Type;
+		int	Drive;
+
+		Type = FDC_GetCmdType ( Byte );
+		if ( ( Type == 2 ) || ( Type == 3 ) )
+		{
+			Drive = IPF_State.Fdc.driveact;
+			if ( ( Drive >= 0 )
+			  && ( ( IPF_State.Drive[ Drive ].side != IPF_State.Rev_Side[ Drive ] ) || ( IPF_State.Drive[ Drive ].track != IPF_State.Rev_Track[ Drive ] ) ) )
+			{
+				IPF_State.Rev_Side[ Drive ] = IPF_State.Drive[ Drive ].side;
+				IPF_State.Rev_Track[ Drive ] = IPF_State.Drive[ Drive ].track;
+				CAPSSetRevolution ( IPF_State.CapsImage[ Drive ] , 0 );
+			}
+		}
+	}
+#endif
+
 	IPF_Emulate();					/* Update emulation's state up to this point */
 
 	CAPSFdcWrite ( &IPF_State.Fdc , Reg , Byte );
@@ -551,6 +682,33 @@ Uint8	IPF_FDC_ReadReg ( Uint8 Reg )
 
 
 /*
+ * Return the content of some registers to display them in the statusbar
+ * We should not call IPF_Emulate() or similar, reading should not change emulation's state
+ */
+void	IPF_FDC_StatusBar ( Uint8 *pCommand , Uint8 *pHead , Uint8 *pTrack , Uint8 *pSector , Uint8 *pSide )
+{
+#ifndef HAVE_CAPSIMAGE
+	return 0;					/* This should not be reached (an IPF image can't be inserted without capsimage) */
+#else
+	int	Drive;
+
+	Drive = IPF_State.Fdc.driveact;
+	if ( Drive < 0 )				/* If no drive enabled, use drive O for Head/Side */
+		Drive = 0;
+
+	/* We read directly in the structures, to be sure we don't change emulation's state */
+	*pCommand	= IPF_State.Fdc.r_command;
+	*pHead		= IPF_State.Drive[ Drive ].track;
+	*pTrack 	= IPF_State.Fdc.r_track;
+	*pSector	= IPF_State.Fdc.r_sector;
+	*pSide		= IPF_State.Drive[ Drive ].side;
+#endif
+}
+
+
+
+
+/*
  * Run the FDC emulation during NbCycles cycles (relative to the 8MHz FDC's clock)
  */
 void	IPF_Emulate ( void )
@@ -560,18 +718,27 @@ void	IPF_Emulate ( void )
 
 #else
 	int	NbCycles;
+	int	Drive;
 
 	NbCycles = CyclesGlobalClockCounter - IPF_State.FdcClock;	/* Number of cycles since last emulation */
 	if ( NbCycles < 0 )
 		NbCycles = 0;						/* We should call CAPSFdcEmulate even when NbCycles=0 */
 
-	LOG_TRACE(TRACE_FDC, "fdc ipf emulate cycles=%d VBL=%d HBL=%d clock=%lld\n" , NbCycles , nVBLs , nHBL , CyclesGlobalClockCounter );
+//	LOG_TRACE(TRACE_FDC, "fdc ipf emulate cycles=%d VBL=%d HBL=%d clock=%lld\n" , NbCycles , nVBLs , nHBL , CyclesGlobalClockCounter );
+
+	/* Update Write Protect status for each drive */
+	for ( Drive=0 ; Drive < MAX_FLOPPYDRIVES ; Drive++ )
+		if ( Floppy_IsWriteProtected ( Drive ) )
+			IPF_State.Drive[ Drive ].diskattr |= CAPSDRIVE_DA_WP;		/* Disk write protected */
+		else
+			IPF_State.Drive[ Drive ].diskattr &= ~CAPSDRIVE_DA_WP;		/* Disk is not write protected */
+
 
 	CAPSFdcEmulate ( &IPF_State.Fdc , NbCycles );			/* Process at max NbCycles */
 	IPF_State.FdcClock += IPF_State.Fdc.clockact;			/* clockact can be < NbCycle in some cases */
 
 	/* Update UI's LEDs depending on Status Register */
-	FDC_SetDriveLedBusy ( (IPF_State.Fdc.r_st0 & ~IPF_State.Fdc.r_stm) | (IPF_State.Fdc.r_st1 & IPF_State.Fdc.r_stm) );
+	FDC_Drive_Set_BusyLed ( (IPF_State.Fdc.r_st0 & ~IPF_State.Fdc.r_stm) | (IPF_State.Fdc.r_st1 & IPF_State.Fdc.r_stm) );
 #endif
 }
 

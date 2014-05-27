@@ -120,6 +120,14 @@
 /* 2013/05/03	[NP]	In Exception(), handle IACK for HBL and VBL interrupts too, allowing pending bit*/
 /*			to be set twice during an active video interrupt (correct fix for Super Monaco	*/
 /*			GP, Super Hang On, Monster Business, European Demo's Intro, BBC Menu 52).	*/
+/* 2014/02/22	[NP]	In Exception(), call valid_address() before reading the opcode at BusErrorPC,	*/
+/*			else this will cause an unwanted "double bus error" ("Union Demo" loader).	*/
+/* 2014/02/22	[NP]	In refill_prefetch(), use get_word() instead of do_get_mem_word() to generate	*/
+/*			a bus error when trying to read from an invalid region.				*/
+/* 2014/03/18	[NP]	In Exception(), add a specific case to restore the dest part of a "move" after	*/
+/*			it was overwritten during a bus error (fix the game Dragon Flight).		*/
+/* 2014/04/06	[NP]	In Exception(), add a special case for last_addr_for_exception_3 stored in the	*/
+/*			stack after a bus error (fix the game Batman The Movie).			*/
 
 const char NewCpu_fileid[] = "Hatari newcpu.c : " __DATE__ " " __TIME__;
 
@@ -146,6 +154,12 @@ const char NewCpu_fileid[] = "Hatari newcpu.c : " __DATE__ " " __TIME__;
 #include "debugui.h"
 #include "debugcpu.h"
 #include "68kDisass.h"
+
+#ifdef HAVE_CAPSIMAGE
+#if CAPSIMAGE_VERSION == 5
+#include <caps5/CapsLibAll.h>
+#endif
+#endif
 
 //#define DEBUG_PREFETCH
 
@@ -971,6 +985,7 @@ void Exception(int nr, uaecptr oldpc, int ExceptionSource)
     /* 68000 bus/address errors: */
     if (currprefs.cpu_level==0 && (nr==2 || nr==3) && ExceptionSource == M68000_EXC_SRC_CPU) {
 	uae_u16 specialstatus = 1;
+	uae_u16 BusError_opcode;
 
 	/* Special status word emulation isn't perfect yet... :-( */
 	if (regs.sr & 0x2000)
@@ -988,21 +1003,42 @@ void Exception(int nr, uaecptr oldpc, int ExceptionSource)
 	    }
 	}
 	else {    /* Bus error */
-	    specialstatus |= ( get_word(BusErrorPC) & (~0x1f) );	/* [NP] unused bits of special status are those of the last opcode ! */
+	    /* Get the opcode that caused the bus error, to adapt the stack frame in some cases */
+	    /* (we must call get_word() only on valid region, else this will cause a double bus error) */
+	    if ( valid_address ( BusErrorPC , 2 ) )
+	      BusError_opcode = get_word(BusErrorPC);
+	    else
+	      BusError_opcode = 0;
+
+	    specialstatus |= ( BusError_opcode & (~0x1f) );		/* [NP] unused bits of special status are those of the last opcode ! */
 	    if (bBusErrorReadWrite)
 	      specialstatus |= 0x10;
 	    put_word (m68k_areg(regs, 7), specialstatus);
 	    put_long (m68k_areg(regs, 7)+2, BusErrorAddress);
-	    put_word (m68k_areg(regs, 7)+6, get_word(BusErrorPC));	/* Opcode */
+	    put_word (m68k_areg(regs, 7)+6, BusError_opcode);		/* Opcode */
 
 	    /* [NP] PC stored in the stack frame is not necessarily pointing to the next instruction ! */
 	    /* FIXME : we should have a proper model for this, in the meantime we handle specific cases */
-	    if ( get_word(BusErrorPC) == 0x21f8 )					/* move.l $0.w,$24.w (Transbeauce 2 loader) */
+	    if ( BusError_opcode == 0x21f8 )						/* move.l $0.w,$24.w (Transbeauce 2 loader) */
 	      put_long (m68k_areg(regs, 7)+10, currpc-2);				/* correct PC is 2 bytes less than usual value */
 
-	    else if ( ( BusErrorPC=0xccc ) && ( get_word(BusErrorPC) == 0x48d6 ) )	/* 48d6 3f00 movem.l a0-a5,(a6) (Blood Money) */
+	    else if ( ( BusErrorPC == 0xccc ) && ( BusError_opcode == 0x48d6 ) )	/* 48d6 3f00 movem.l a0-a5,(a6) (Blood Money) */
 	      put_long (m68k_areg(regs, 7)+10, currpc+2);				/* correct PC is 2 bytes more than usual value */
-	    //fprintf(stderr,"Bus Error at address $%x, PC=$%lx %x %x\n", BusErrorAddress, (long)currpc, BusErrorPC , get_word(BusErrorPC));
+
+	    else if ( ( BusErrorPC == 0x1fece ) && ( BusError_opcode == 0x33d4 ) )	/* 1fece : 33d4 0001 fdca move.w (a4),$1fdca (Batman The Movie) */
+	      put_long (m68k_areg(regs, 7)+10, currpc-4);				/* correct PC is 4 bytes less than usual value */
+
+	    /* [NP] In case of a move with a bus error on the read part, uae cpu is writing to the dest part */
+	    /* then process the bus error ; on a real CPU, the bus error occurs after the read and before the */
+	    /* write, so the dest part doesn't change. For now, we restore the dest part on some specific cases */
+	    /* FIXME : the bus error should be processed just after the read, not at the end of the instruction */
+	    else if ( ( BusErrorPC == 0x62a ) && ( BusError_opcode == 0x3079 ) )	/* 3079 4ef9 0000 move.l $4ef90000,a0 (Dragon Flight) */
+	      m68k_areg(regs, 0) = 8;							/* A0 should not be changed to "0" but keep its value "8" */
+
+	    else if ( get_long(BusErrorPC) == 0x13f88e21 )				/* 13f8 8e21 move.b $ffff8e21.w,$xxxxx (Tymewarp) */
+	      put_byte ( get_long(BusErrorPC+4) , 0x00 );				/* dest content should not be changed to "ff" but keep its value "00" */
+
+	    fprintf(stderr,"Bus Error at address $%x, PC=$%lx %x %x\n", BusErrorAddress, (long)currpc, BusErrorPC , BusError_opcode);
 
 	    /* Check for double bus errors: */
 	    if (regs.spcflags & SPCFLAG_BUSERROR) {
@@ -1694,7 +1730,7 @@ static void m68k_run_1 (void)
 {
 #ifdef DEBUG_PREFETCH
     uae_u8 saved_bytes[20];
-    uae_u16 *oldpcp;
+    uae_u8 *oldpcp;
 #endif
 
     for (;;) {
@@ -1703,11 +1739,11 @@ static void m68k_run_1 (void)
 	uae_u32 opcode = get_iword_prefetch (0);
 
 #ifdef DEBUG_PREFETCH
-	if (get_ilong (0) != do_get_mem_long (&regs.prefetch)) {
-	    fprintf (stderr, "Prefetch differs from memory.\n");
-	    debugging = 1;
-	    return;
-	}
+//	if (get_ilong (0) != do_get_mem_long (&regs.prefetch)) {
+//	    fprintf (stderr, "Prefetch differs from memory.\n");
+//	    debugging = 1;
+//	    return;
+//	}
 	oldpcp = regs.pc_p;
 	memcpy (saved_bytes, regs.pc_p, 20);
 #endif
@@ -1739,14 +1775,18 @@ static void m68k_run_1 (void)
 	if (bDspEnabled)
 	    Cycles_SetCounter(CYCLES_COUNTER_CPU, 0);	/* to measure the total number of cycles spent in the cpu */
 
+	/* Uncomment following lines to call capslib's debugger after each instruction */
+	//if ( CAPSGetDebugRequest() )
+	//  DebugUI(REASON_CPU_BREAKPOINT);
+
 	cycles = (*cpufunctbl[opcode])(opcode);
 //fprintf (stderr, "ir out %x %x\n",do_get_mem_long(&regs.prefetch) , regs.prefetch_pc);
 
 #ifdef DEBUG_PREFETCH
 	if (memcmp (saved_bytes, oldpcp, 20) != 0) {
 	    fprintf (stderr, "Self-modifying code detected %x.\n" , m68k_getpc() );
-	    set_special (SPCFLAG_BRK);
-	    debugging = 1;
+//	    set_special (SPCFLAG_BRK);
+//	    debugging = 1;
 	}
 #endif
 

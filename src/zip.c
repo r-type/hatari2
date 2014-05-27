@@ -20,6 +20,7 @@ const char ZIP_fileid[] = "Hatari zip.c : " __DATE__ " " __TIME__;
 #include "file.h"
 #include "floppy.h"
 #include "floppy_ipf.h"
+#include "floppy_stx.h"
 #include "log.h"
 #include "msa.h"
 #include "st.h"
@@ -45,6 +46,9 @@ static const char * const pszDiskNameExts[] =
 	".st",
 	".dim",
 	".ipf",
+	".raw",
+	".ctr",
+	".stx",
 	NULL
 };
 
@@ -343,7 +347,13 @@ static long ZIP_CheckImageFile(unzFile uf, char *filename, int namelen, int *pIm
 		return -1;
 	}
 
-	/* check for .ipf, .msa, .dim or .st extension */
+	/* check for .stx, .ipf, .msa, .dim or .st extension */
+	if (STX_FileNameIsSTX(filename, false))
+	{
+		*pImageType = FLOPPY_IMAGE_TYPE_STX;
+		return file_info.uncompressed_size;
+	}
+
 	if (IPF_FileNameIsIPF(filename, false))
 	{
 		*pImageType = FLOPPY_IMAGE_TYPE_IPF;
@@ -368,7 +378,7 @@ static long ZIP_CheckImageFile(unzFile uf, char *filename, int namelen, int *pIm
 		return file_info.uncompressed_size;
 	}
 
-	Log_Printf(LOG_ERROR, "Not an .ST, .MSA or .DIM file.\n");
+	Log_Printf(LOG_ERROR, "Not an .ST, .MSA, .DIM, .IPF or .STX file.\n");
 	return 0;
 }
 
@@ -562,6 +572,10 @@ Uint8 *ZIP_ReadDisk(const char *pszFileName, const char *pszZipPath, long *pImag
 		pDiskBuffer = buf;
 		break;
 #endif
+	case FLOPPY_IMAGE_TYPE_STX:
+		/* return buffer */
+		pDiskBuffer = buf;
+		break;
 	case FLOPPY_IMAGE_TYPE_MSA:
 		/* uncompress the MSA file */
 		pDiskBuffer = MSA_UnCompress(buf, (long *)&ImageSize);

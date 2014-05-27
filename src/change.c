@@ -243,9 +243,14 @@ void Change_CopyChangedParamsToConfiguration(CNF_PARAMS *current, CNF_PARAMS *ch
 	}
 
 	if ( changed->DiskImage.EnableDriveA != current->DiskImage.EnableDriveA )
-		FDC_EnableDrive ( 0 , changed->DiskImage.EnableDriveA );
+		FDC_Drive_Set_Enable ( 0 , changed->DiskImage.EnableDriveA );
 	if ( changed->DiskImage.EnableDriveB != current->DiskImage.EnableDriveB )
-		FDC_EnableDrive ( 1 , changed->DiskImage.EnableDriveB );
+		FDC_Drive_Set_Enable ( 1 , changed->DiskImage.EnableDriveB );
+
+	if ( changed->DiskImage.DriveA_NumberOfHeads != current->DiskImage.DriveA_NumberOfHeads )
+		FDC_Drive_Set_NumberOfHeads ( 0 , changed->DiskImage.DriveA_NumberOfHeads );
+	if ( changed->DiskImage.DriveB_NumberOfHeads != current->DiskImage.DriveB_NumberOfHeads )
+		FDC_Drive_Set_NumberOfHeads ( 1 , changed->DiskImage.DriveB_NumberOfHeads );
 
 	/* Did change GEMDOS drive? */
 	if (changed->HardDisk.bUseHardDiskDirectories != current->HardDisk.bUseHardDiskDirectories

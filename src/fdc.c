@@ -23,6 +23,7 @@ const char FDC_fileid[] = "Hatari fdc.c : " __DATE__ " " __TIME__;
 #include "hdc.h"
 #include "floppy.h"
 #include "floppy_ipf.h"
+#include "floppy_stx.h"
 #include "ioMem.h"
 #include "log.h"
 #include "m68000.h"
@@ -157,6 +158,27 @@ ACSI DMA and Floppy Disk Controller(FDC)
   read DMA sector count, so we return the lowest 8 bits from the latest access at $ff8604.
 
 
+  Cycles and wait states :
+  ------------------------
+  As verified on a real STF, reading or writing to $ff8604 or $ff8606 can add some 4 cycles
+  wait state.
+	lea	$ffff8604,a3
+	lea	$ffff8606,a4
+
+	move.w  (a4),d0		; dma status			motorola=8	stf=8
+
+	move.w  #$90,(a4)	; dma ctrl sector count		motorola=12	stf=12+4
+	move.w  (a3),d0		; read sector count / fdc reg	motorola=8	stf=8
+	move.w  #1,(a3)		; write sector count		motorola=12	stf=12+4
+
+	move.w  #$80,(a4)	; dma ctrl status/cmd reg	motorola=12	stf=12+4
+	move.w  (a3),d0		; read fdc reg			motorola=8	stf=8+4
+	move.w  #$d0,(a3)	; write fdc reg			motorola=12	stf=12+4
+
+  -> All accesses take 4 extra cycles, except reading DMA status and reading DMA sector count
+  (which can't really be read, see note above)
+
+
   Detecting disk changes :
   ------------------------
   3'1/2 floppy drives include a 'DSKCHG' signal on pin 34 to detect when a disk was changed.
@@ -284,6 +306,7 @@ enum
 	FDCEMU_RUN_READSECTORS_READDATA_TRANSFER_START,
 	FDCEMU_RUN_READSECTORS_READDATA_TRANSFER_LOOP,
 	FDCEMU_RUN_READSECTORS_CRC,
+	FDCEMU_RUN_READSECTORS_MULTI,
 	FDCEMU_RUN_READSECTORS_RNF,
 	FDCEMU_RUN_READSECTORS_COMPLETE,
 	/* Write Sector */
@@ -296,6 +319,7 @@ enum
 	FDCEMU_RUN_WRITESECTORS_WRITEDATA_TRANSFER_START,
 	FDCEMU_RUN_WRITESECTORS_WRITEDATA_TRANSFER_LOOP,
 	FDCEMU_RUN_WRITESECTORS_CRC,
+	FDCEMU_RUN_WRITESECTORS_MULTI,
 	FDCEMU_RUN_WRITESECTORS_RNF,
 	FDCEMU_RUN_WRITESECTORS_COMPLETE,
 	/* Read Address */
@@ -303,8 +327,10 @@ enum
 	FDCEMU_RUN_READADDRESS_SPIN_UP,
 	FDCEMU_RUN_READADDRESS_HEAD_LOAD,
 	FDCEMU_RUN_READADDRESS_MOTOR_ON,
+	FDCEMU_RUN_READADDRESS_NEXT_SECTOR_HEADER,
 	FDCEMU_RUN_READADDRESS_TRANSFER_START,
 	FDCEMU_RUN_READADDRESS_TRANSFER_LOOP,
+	FDCEMU_RUN_READADDRESS_RNF,
 	FDCEMU_RUN_READADDRESS_COMPLETE,
 	/* Read Track */
 	FDCEMU_RUN_READTRACK,
@@ -408,29 +434,6 @@ enum
 static int FDC_StepRate_ms[] = { 6 , 12 , 2 , 3 };		/* Controlled by bits 1 and 0 (r1/r0) in type I commands */
 
 
-#define	FDC_SECTOR_SIZE_128			0		/* Sector size used in the ID fields */
-#define	FDC_SECTOR_SIZE_256			1
-#define	FDC_SECTOR_SIZE_512			2
-#define	FDC_SECTOR_SIZE_1024			3
-
-
-/* These are some standard GAP values to format a track with 9 or 10 sectors */
-/* When handling ST/MSA disk images, those values are required to get accurate */
-/* timings when emulating disk's spin and index's position. */
-
-#define	FDC_TRACK_LAYOUT_STANDARD_GAP1		60		/* Track Pre GAP : 0x4e */
-#define	FDC_TRACK_LAYOUT_STANDARD_GAP2		12		/* Sector ID Pre GAP : 0x00 */
-#define	FDC_TRACK_LAYOUT_STANDARD_GAP3a		22		/* Sector ID Post GAP : 0x4e */
-#define	FDC_TRACK_LAYOUT_STANDARD_GAP3b		12		/* Sector DATA Pre GAP : 0x00 */
-#define	FDC_TRACK_LAYOUT_STANDARD_GAP4		40		/* Sector DATA Pre GAP : 0x4e */
-#define	FDC_TRACK_LAYOUT_STANDARD_GAP5		0		/* Track Post GAP : 0x4e (to fill the rest of the track, value is variable) */
-								/* GAP5 is 664 bytes for 9 sectors or 50 bytes for 10 sectors */
-
-/* Size of a raw standard 512 byte sector in a track, including ID field and all GAPs : 614 bytes */
-/* (this must be the same as the data returned in FDC_UpdateReadTrackCmd() ) */
-#define	FDC_TRACK_LAYOUT_STANDARD_RAW_SECTOR_512	( FDC_TRACK_LAYOUT_STANDARD_GAP2 \
-				+ 3 + 1 + 6 + FDC_TRACK_LAYOUT_STANDARD_GAP3a + FDC_TRACK_LAYOUT_STANDARD_GAP3b \
-				+ 3 + 1 + 512 + 2 + FDC_TRACK_LAYOUT_STANDARD_GAP4 )
 
 
 #define	FDC_FAST_FDC_FACTOR			10		/* Divide all delays by this value when --fastfdc is used */
@@ -442,8 +445,8 @@ static int FDC_StepRate_ms[] = { 6 , 12 , 2 , 3 };		/* Controlled by bits 1 and 
 #define	FDC_DENSITY_FACTOR_ED			4		/* For a ED disk, we get x4 bytes than DD */
 
 
-#define	FDC_EMULATION_MODE_INTERNAL		1		/* Use fdc.c to handle emulation (ST, MSA and DIM images) */
-#define	FDC_EMULATION_MODE_IPF			2		/* Use floppy_ipf.c to handle emulation (IPF images ) */
+#define	FDC_EMULATION_MODE_INTERNAL		1		/* Use fdc.c to handle emulation (ST, MSA, DIM and STX images) */
+#define	FDC_EMULATION_MODE_IPF			2		/* Use floppy_ipf.c to handle emulation (IPF, CTR images) */
 
 
 typedef struct {
@@ -458,15 +461,19 @@ typedef struct {
 	Uint8		SideSignal;				/* Side 0 or 1 */
 	int		DriveSelSignal;				/* 0 or 1 for drive A or B ; or -1 if no drive selected */
 	/* Other variables */
-	int		Command;				/* FDC emulation command currently being exceuted */
+	int		Command;				/* FDC emulation command currently being executed */
 	int		CommandState;				/* Current state for the running command */
 	Uint8		CommandType;				/* Type of latest FDC command (1,2,3 or 4) */
 	bool		ReplaceCommandPossible;			/* true if the current command can be replaced by another one (see notes) */
 
+	Uint8		Status_Temp;				/* Temporary content of the status register */
 	bool		StatusTypeI;				/* When true, STR will report the status of a type I command */
 	int		IndexPulse_Counter;			/* To count the number of rotations when motor is ON */
-	Uint8		NextSector_ID_Field_SR;			/* Sector Register from the ID Field after a call to FDC_NextSectorID_NbBytes() */
+	Uint8		NextSector_ID_Field_TR;			/* Track value in the next ID Field after a call to FDC_NextSectorID_FdcCycles_ST() */
+	Uint8		NextSector_ID_Field_SR;			/* Sector Register from the ID Field after a call to FDC_NextSectorID_FdcCycles_ST() */
 	Uint8		InterruptCond;				/* For a type IV force interrupt, contains the condition on the lower 4 bits */
+
+	int		EmulationMode;				/* FDC_EMULATION_MODE_INTERNAL or FDC_EMULATION_MODE_IPF */
 } FDC_STRUCT;
 
 
@@ -484,7 +491,7 @@ typedef struct {
 
 	/* Variables to handle our DMA buffer */
 	int		PosInBuffer;
-	int		PosInBufferTransfer;
+	int		PosInBufferTransfer;			/* FIXME REMOVE */
 	int		BytesToTransfer;
 } FDC_DMA_STRUCT;
 
@@ -496,18 +503,38 @@ typedef struct {
 	int		Density;				/* 1 for DD (720 kB), 2 for HD (1.4 MB), 4 for ED (2.8 MB) */
 	Uint8		HeadTrack;				/* Current position of the head */
 //	Uint8		Motor;					/* State of the drive's motor : 0=OFF 1=ON */
+	Uint8		NumberOfHeads;				/* 1 for single sided drive, 2 for double sided */
 
 	Uint64		IndexPulse_Time;			/* CyclesGlobalClockCounter value last time we had an index pulse with motor ON */
 } FDC_DRIVE_STRUCT;
 
 
+/**
+ * Bytes to transfer with type II/III commands are stored in this buffer
+ * which associates a specific delay to each byte. This allows to
+ * have a common method to transfer data from ST/MSA disk images (with fixed
+ * timing), as well as data from STX disk images (with possible timing variations)
+ */
+typedef struct {
+	int		Size;
+	int		PosRead;
+
+	struct {
+		Uint8		Byte;
+		Uint16		Timing;
+	} Data [ FDC_TRACK_BYTES_STANDARD*4+1000 ];
+} FDC_BUFFER_STRUCT;
+
+
 static FDC_STRUCT	FDC;					/* All variables related to the WD1772 emulation */
 static FDC_DMA_STRUCT	FDC_DMA;				/* All variables related to the DMA transfer */
 static FDC_DRIVE_STRUCT	FDC_DRIVES[ MAX_FLOPPYDRIVES ];		/* A: and B: */
+static FDC_BUFFER_STRUCT	FDC_BUFFER;			/* Buffer of Timing/Byte to transfer with the FDC */
 
 static Uint8 DMADiskWorkSpace[ FDC_TRACK_BYTES_STANDARD*4+1000 ];/* Workspace used to transfer bytes between floppy and DMA */
 								/* It should be large enough to contain a whole track */
 								/* We use a x4 factor when we need to simulate HD and ED too */
+
 
 
 /*--------------------------------------------------------------*/
@@ -528,18 +555,11 @@ static void	FDC_UpdateAll ( void );
 static int	FDC_GetSectorsPerTrack ( int Drive , int Track , int Side );
 static int	FDC_GetSidesPerDisk ( int Drive , int Track );
 static int	FDC_GetDensity ( int Drive );
-static int	FDC_GetBytesPerTrack ( int Drive );
 
 static Uint32	FDC_GetCyclesPerRev_FdcCycles ( int Drive );
 static void	FDC_IndexPulse_Update ( void );
 static void	FDC_IndexPulse_Init ( int Drive );
-static int	FDC_IndexPulse_GetCurrentPos_FdcCycles ( Uint32 *pFdcCyclesPerRev );
-static int	FDC_IndexPulse_GetCurrentPos_NbBytes ( void );
-static int	FDC_IndexPulse_GetState ( void );
-static int	FDC_NextIndexPulse_FdcCycles ( void );
-static int	FDC_NextSectorID_NbBytes ( void );
 
-static Uint8	FDC_GetCmdType ( Uint8 CR );
 static void	FDC_Update_STR ( Uint8 DisableBits , Uint8 EnableBits );
 static int	FDC_CmdCompleteCommon ( bool DoInt );
 static bool	FDC_VerifyTrack ( void );
@@ -577,7 +597,13 @@ static void	FDC_WriteTrackRegister ( void );
 static void	FDC_WriteSectorRegister ( void );
 static void	FDC_WriteDataRegister ( void );
 
-static bool	FDC_ReadSectorFromFloppy ( int Drive , Uint8 *buf , Uint8 Sector , int *pSectorSize );
+static int	FDC_NextSectorID_FdcCycles_ST ( Uint8 Drive , Uint8 NumberOfHeads , Uint8 Track , Uint8 Side );
+static Uint8	FDC_NextSectorID_TR_ST ( void );
+static Uint8	FDC_NextSectorID_SR_ST ( void );
+static Uint8	FDC_ReadSector_ST ( Uint8 Drive , Uint8 Track , Uint8 Sector , Uint8 Side , int *pSectorSize );
+static Uint8	FDC_ReadAddress_ST ( Uint8 Drive , Uint8 Track , Uint8 Sector , Uint8 Side );
+static Uint8	FDC_ReadTrack_ST ( Uint8 Drive , Uint8 Track , Uint8 Side );
+
 static bool	FDC_WriteSectorToFloppy ( int Drive , int DMASectorsCount , Uint8 Sector , int *pSectorSize );
 
 
@@ -589,7 +615,8 @@ void	FDC_MemorySnapShot_Capture(bool bSave)
 {
 	MemorySnapShot_Store(&FDC, sizeof(FDC));
 	MemorySnapShot_Store(&FDC_DMA, sizeof(FDC_DMA));
-	MemorySnapShot_Store(&FDC_DRIVES, sizeof(FDC_DRIVE_STRUCT));
+	MemorySnapShot_Store(&FDC_DRIVES, sizeof(FDC_DRIVES));
+	MemorySnapShot_Store(&FDC_BUFFER, sizeof(FDC_BUFFER_STRUCT));
 
 	MemorySnapShot_Store(DMADiskWorkSpace, sizeof(DMADiskWorkSpace));
 }
@@ -600,7 +627,7 @@ void	FDC_MemorySnapShot_Capture(bool bSave)
  * Change the color of the drive's led color in the statusbar, depending
  * on the state of the busy bit in STR
  */
-void	FDC_SetDriveLedBusy ( Uint8 STR )
+void	FDC_Drive_Set_BusyLed ( Uint8 STR )
 {
 //fprintf ( stderr ,"fdc led %d %x\n" , FDC.DriveSelSignal , STR );
 	if ( FDC.DriveSelSignal < 0 )
@@ -613,7 +640,58 @@ void	FDC_SetDriveLedBusy ( Uint8 STR )
 }
 
 
-//*-----------------------------------------------------------------------*/
+/*-----------------------------------------------------------------------*/
+/**
+ * Return a small text + length with the current values of the FDC's registers
+ * This text is displayed in the statusbar and it looks like :
+ * CC:xx HH:TT:SS:s
+ *   CC=command in 2 letters
+ *   xx=command in hexa
+ *   HH=physical head's position
+ *   TT=track register
+ *   SS=sector register
+ *   s=side
+ */
+int	FDC_Get_StatusBar_Text ( char *text )
+{
+	Uint8	Command , Head , Track , Sector , Side;
+	char	CommandText[ 3 ];
+	int	Drive;
+
+	Drive = FDC.DriveSelSignal;
+	if ( Drive < 0 )					/* If no drive enabled, use drive O for Head */
+		Drive = 0;
+
+	if ( FDC_GetEmulationMode() == FDC_EMULATION_MODE_INTERNAL )
+	{
+		Command = FDC.CR;
+		Head	= FDC_DRIVES[ Drive ].HeadTrack;
+		Track	= FDC.TR;
+		Sector	= FDC.SR;
+		Side	= FDC.SideSignal;
+	}
+	else							/* FDC_EMULATION_MODE_IPF */
+	{
+		IPF_FDC_StatusBar ( &Command , &Head , &Track , &Sector , &Side );
+	}
+
+	if      ( ( Command & 0xf0 ) == 0x00 )	strcpy ( CommandText , "RE" );
+	else if ( ( Command & 0xf0 ) == 0x10 )	strcpy ( CommandText , "SE" );
+	else if ( ( Command & 0xe0 ) == 0x20 )	strcpy ( CommandText , "ST" );
+	else if ( ( Command & 0xe0 ) == 0x40 )	strcpy ( CommandText , "SI" );
+	else if ( ( Command & 0xe0 ) == 0x50 )	strcpy ( CommandText , "SO" );
+	else if ( ( Command & 0xe0 ) == 0x80 )	strcpy ( CommandText , "RS" );
+	else if ( ( Command & 0xe0 ) == 0xa0 )	strcpy ( CommandText , "WS" );
+	else if ( ( Command & 0xf0 ) == 0xc0 )	strcpy ( CommandText , "RA" );
+	else if ( ( Command & 0xf0 ) == 0xe0 )	strcpy ( CommandText , "RT" );
+	else if ( ( Command & 0xf0 ) == 0xf0 )	strcpy ( CommandText , "WT" );
+	else					strcpy ( CommandText , "FO" );
+
+	return sprintf ( text , "%s:%02X %02X:%02X:%02X:%d" , CommandText , Command , Head , Track , Sector , Side );
+}
+
+
+/*-----------------------------------------------------------------------*/
 /**
  * Convert a delay in micro seconds to its equivalent of fdc cycles
  * (delays in the WD1772 specs are relative to a 8 MHz reference clock)
@@ -753,8 +831,13 @@ void FDC_Init ( void )
 		FDC_DRIVES[ i ].RPM = FDC_RPM_STANDARD * 1000;
 		FDC_DRIVES[ i ].Density = FDC_DENSITY_FACTOR_DD;
 		FDC_DRIVES[ i ].HeadTrack = 0;			/* Set all drives to track 0 */
+		FDC_DRIVES[ i ].NumberOfHeads = 2;		/* Double sided drive */
 		FDC_DRIVES[ i ].IndexPulse_Time = 0;
 	}
+
+	FDC_Buffer_Reset();
+
+	FDC.EmulationMode = FDC_EMULATION_MODE_INTERNAL;
 }
 
 
@@ -807,6 +890,8 @@ void FDC_Reset ( bool bCold )
 	FDC_DMA.Mode = 0;
 
 	FDC_ResetDMA();
+
+	FDC_Buffer_Reset();
 
 	/* Also reset IPF emulation */
 	IPF_Reset();
@@ -996,6 +1081,71 @@ Uint8	FDC_DMA_FIFO_Pull ( void )
 
 /*-----------------------------------------------------------------------*/
 /**
+ * Reset the buffer used to transfer data between the FDC and the DMA
+ */
+void	FDC_Buffer_Reset ( void )
+{
+	FDC_BUFFER.Size = 0;
+	FDC_BUFFER.PosRead = 0;	
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Add a byte to the FDC transfer buffer, using a specific timing
+ */
+void	FDC_Buffer_Add_Timing ( Uint8 Byte , Uint16 Timing )
+{
+	FDC_BUFFER.Data[ FDC_BUFFER.Size ].Byte = Byte;
+	FDC_BUFFER.Data[ FDC_BUFFER.Size ].Timing = Timing;
+	FDC_BUFFER.Size++;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Add a byte to the FDC transfer buffer, using a default timing
+ */
+void	FDC_Buffer_Add ( Uint8 Byte )
+{
+	FDC_Buffer_Add_Timing ( Byte , FDC_TransferByte_FdcCycles ( 1 ) );
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Return the timing needed to transfer the Byte at the current position
+ */
+Uint16	FDC_Buffer_Read_Timing ( void )
+{
+//fprintf ( stderr , "read timing %d %x\n" , FDC_BUFFER.PosRead , FDC_BUFFER.Data[ FDC_BUFFER.PosRead ].Timing );
+	return FDC_BUFFER.Data[ FDC_BUFFER.PosRead ].Timing;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Return the Byte at the current position and increment position
+ */
+Uint8	FDC_Buffer_Read_Byte ( void )
+{
+//fprintf ( stderr , "read byte %d %x\n" , FDC_BUFFER.PosRead , FDC_BUFFER.Data[ FDC_BUFFER.PosRead ].Byte );
+	return FDC_BUFFER.Data[ FDC_BUFFER.PosRead++ ].Byte;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Return the number of bytes stored in FDC_BUFFER
+ */
+int	FDC_Buffer_Get_Size ( void )
+{
+	return FDC_BUFFER.Size;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
  * Return the mode to handle a read/write in $ff86xx
  * Depending on the images inserted in each floppy drive and on the
  * selected drive, we must choose which fdc emulation should be used.
@@ -1004,12 +1154,17 @@ Uint8	FDC_DMA_FIFO_Pull ( void )
  * could lead to inconstancies when precise timings are required), we also
  * use the IPF mode for an empty drive if the other drive contains an IPF
  * image.
+ * If no drive is selected, we must use the previous mode (before drives were
+ * unselected), not the internal one : in case some commands are sent when
+ * drives are deselected and the drive was in IPF mode, we must send
+ * the command to IPF to ensure no command are lost if the drive is selected again
+ * (eg : D0 command in "Saint Dragon" IPF)
  */
 static int FDC_GetEmulationMode ( void )
 {
 	int	Mode;
 
-	Mode = FDC_EMULATION_MODE_INTERNAL;				/* Default if no drive is selected */
+	Mode = FDC.EmulationMode;				/* Default to previous mode if no drive is selected */
 
 	/* Check drive 1 first */
 	if ( ( PSGRegisters[PSG_REG_IO_PORTA] & 0x04 ) == 0 )
@@ -1035,6 +1190,7 @@ static int FDC_GetEmulationMode ( void )
 			Mode = FDC_EMULATION_MODE_INTERNAL;
 	}
 
+	FDC.EmulationMode = Mode;
 //fprintf ( stderr , "emul mode %x %d\n" , PSGRegisters[PSG_REG_IO_PORTA] & 0x06 , Mode );
 //	return FDC_EMULATION_MODE_INTERNAL;
 //	return FDC_EMULATION_MODE_IPF;
@@ -1060,13 +1216,31 @@ void	FDC_UpdateAll ( void )
  * This function is used to enable/disable a drive when
  * using the UI or command line parameters
  */
-void	FDC_EnableDrive ( int Drive , bool value )
+void	FDC_Drive_Set_Enable ( int Drive , bool value )
 {
 	//LOG_TRACE ( TRACE_FDC , "fdc enable drive=%d %s\n" , Drive , value?"on":"off" );
 fprintf ( stderr , "fdc enable drive=%d %s\n" , Drive , value?"on":"off" );
 
 	if ( ( Drive >= 0 ) && ( Drive < MAX_FLOPPYDRIVES ) )
 		FDC_DRIVES[ Drive ].Enabled = value;
+
+	/* Also forward change to IPF emulation */
+	IPF_Drive_Set_Enable ( Drive , value );
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * This function is used to choose single sided or double sided for a drive
+ * when using the UI or command line parameters
+ */
+void	FDC_Drive_Set_NumberOfHeads ( int Drive , int NbrHeads )
+{
+	//LOG_TRACE ( TRACE_FDC , "fdc set nbr heads drive=%d %d\n" , Drive , NbrHeads );
+fprintf ( stderr , "fdc set nbr heads drive=%d %d\n" , Drive , NbrHeads );
+
+	if ( ( Drive >= 0 ) && ( Drive < MAX_FLOPPYDRIVES ) )
+		FDC_DRIVES[ Drive ].NumberOfHeads = NbrHeads;
 }
 
 
@@ -1246,7 +1420,7 @@ static int FDC_GetDensity ( int Drive )
  * To simulate HD/ED floppies, we multiply the size by a density factor.
  * Drive should be a valid drive (0 or 1)
  */
-static int	FDC_GetBytesPerTrack ( int Drive )
+int	FDC_GetBytesPerTrack ( int Drive )
 {
 	int	TrackSize;
 
@@ -1260,12 +1434,18 @@ static int	FDC_GetBytesPerTrack ( int Drive )
  * Get the number of FDC cycles for one revolution of the floppy
  * RPM is already multiplied by 1000 to simulate non-integer values
  * (for Falcon, we divide cycles by 2 to simulate a FDC freq in the 8 MHz range)
+ * For STX image, the number of cycles depends on drive/track/side.
  * Drive should be a valid drive (0 or 1)
  */
 static Uint32	FDC_GetCyclesPerRev_FdcCycles ( int Drive )
 {
 	Uint32	FdcCyclesPerRev;
 
+	/* If the inserted disk is an STX, we use the supplied track length to compute cycles per rev */
+	if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
+		return FDC_GetCyclesPerRev_FdcCycles_STX ( Drive , FDC_DRIVES[ Drive ].HeadTrack , FDC.SideSignal );
+
+	/* Assume a standard length for all tracks for ST/MSA images */
 	FdcCyclesPerRev = (Uint64)(MachineClocks.FDC_Freq * 1000.L) / ( FDC_DRIVES[ Drive ].RPM / 60 );
 
 	/* Our conversion expects FDC_Freq to be nearly the same as CPU_Freq (8 Mhz) */
@@ -1363,7 +1543,7 @@ static void	FDC_IndexPulse_Init ( int Drive )
  * for the current drive.
  * If there's no available drive/floppy (i.e. no index), we return -1
  */
-static int	FDC_IndexPulse_GetCurrentPos_FdcCycles ( Uint32 *pFdcCyclesPerRev )
+int	FDC_IndexPulse_GetCurrentPos_FdcCycles ( Uint32 *pFdcCyclesPerRev )
 {
 	Uint32	FdcCyclesPerRev;
 	Uint32	CpuCyclesSinceIndex;
@@ -1391,7 +1571,7 @@ static int	FDC_IndexPulse_GetCurrentPos_FdcCycles ( Uint32 *pFdcCyclesPerRev )
  * If there's no available drive/floppy and no index, we return -1
  * To simulate HD/ED floppies, we multiply the number of bytes by a density factor.
  */
-static int	FDC_IndexPulse_GetCurrentPos_NbBytes ( void )
+int	FDC_IndexPulse_GetCurrentPos_NbBytes ( void )
 {
 	int	FdcCyclesSinceIndex;
 
@@ -1413,7 +1593,7 @@ static int	FDC_IndexPulse_GetCurrentPos_NbBytes ( void )
  * During the rest of the track, the signal will be 0 (it will also be 0
  * if the drive if OFF or empty)
  */
-static int	FDC_IndexPulse_GetState ( void )
+int	FDC_IndexPulse_GetState ( void )
 {
 	int	state;
 	int	FdcCyclesSinceIndex;
@@ -1435,7 +1615,7 @@ static int	FDC_IndexPulse_GetState ( void )
  * Return the number of FDC cycles before reaching the next index pulse signal.
  * If there's no available drive/floppy and no index, we return -1
  */
-static int	FDC_NextIndexPulse_FdcCycles ( void )
+int	FDC_NextIndexPulse_FdcCycles ( void )
 {
 	Uint32	FdcCyclesPerRev;
 	int	FdcCyclesSinceIndex;
@@ -1456,62 +1636,6 @@ static int	FDC_NextIndexPulse_FdcCycles ( void )
 //fprintf ( stderr , "fdc next index current pos new=%d\n" , res );
 	return res;
 }
-
-
-/*-----------------------------------------------------------------------*/
-/**
- * Return the number of bytes to read from the track before reaching the
- * next sector's ID Field ($A1 $A1 $A1 $FE TR SIDE SR LEN CRC1 CRC2)
- * If no ID Field is found before the end of the track, we use the 1st
- * ID Field of the track (which simulates a full spin of the floppy).
- * We also store the next sector's number into NextSector_ID_Field_SR.
- * This function assumes some 512 byte sectors stored in ascending
- * order (for ST/MSA)
- * If there's no available drive/floppy, we return -1
- */
-static int	FDC_NextSectorID_NbBytes ( void )
-{
-	int	CurrentPos;
-	int	MaxSector;
-	int	TrackPos;
-	int	i;
-	int	NextSector;
-	int	NbBytes;
-
-	CurrentPos = FDC_IndexPulse_GetCurrentPos_NbBytes ();
-	if ( CurrentPos < 0 )						/* No drive/floppy available at the moment */
-		return -1;
-
-	MaxSector = FDC_GetSectorsPerTrack ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
-	TrackPos = FDC_TRACK_LAYOUT_STANDARD_GAP1;			/* Position of 1st raw sector */
-	TrackPos += FDC_TRACK_LAYOUT_STANDARD_GAP2;			/* Position of ID Field in 1st raw sector */
-
-	/* Compare CurrentPos with each sector's position in ascending order */
-	for ( i=0 ; i<MaxSector ; i++ )
-	{
-		if ( CurrentPos < TrackPos )
-			break;						/* We found the next sector */
-		else
-			TrackPos += FDC_TRACK_LAYOUT_STANDARD_RAW_SECTOR_512;
-	}
-
-	if ( i == MaxSector )						/* CurrentPos is after the last ID Field of this track */
-	{
-		/* Reach end of track (new index pulse), then go to sector 1 */
-		NbBytes = FDC_GetBytesPerTrack ( FDC.DriveSelSignal ) - CurrentPos + FDC_TRACK_LAYOUT_STANDARD_GAP1 + FDC_TRACK_LAYOUT_STANDARD_GAP2;
-		NextSector = 1;
-	}
-	else								/* There's an ID Field before end of track */
-	{
-		NbBytes = TrackPos - CurrentPos;
-		NextSector = i+1;
-	}
-
-//fprintf ( stderr , "fdc bytes next sector pos=%d trpos=%d nbbytes=%d maxsr=%d nextsr=%d\n" , CurrentPos, TrackPos, NbBytes, MaxSector, NextSector );
-	FDC.NextSector_ID_Field_SR = NextSector;
-	return NbBytes;
-}
-
 
 
 /*-----------------------------------------------------------------------*/
@@ -1628,7 +1752,7 @@ void FDC_InterruptHandler_Update ( void )
 /**
  * Return the type of a command, based on the upper bits of CR
  */
-static Uint8 FDC_GetCmdType ( Uint8 CR )
+Uint8 FDC_GetCmdType ( Uint8 CR )
 {
 	if ( ( CR & 0x80 ) == 0 )					/* Type I - Restore, Seek, Step, Step-In, Step-Out */
 		return 1;
@@ -1652,7 +1776,7 @@ static void FDC_Update_STR ( Uint8 DisableBits , Uint8 EnableBits )
 	FDC.STR &= (~DisableBits);					/* Clear bits in DisableBits */
 	FDC.STR |= EnableBits;						/* Set bits in EnableBits */
 
-	FDC_SetDriveLedBusy ( FDC.STR );
+	FDC_Drive_Set_BusyLed ( FDC.STR );
 //fprintf ( stderr , "fdc str 0x%x\n" , FDC.STR );
 }
 
@@ -1723,8 +1847,10 @@ static bool FDC_VerifyTrack ( void )
 		return false;
 	}
 
-	/* If disk image has only one side and we're trying to verify on 2nd side, then return false */
-	if ( ( FDC.SideSignal == 1  ) && ( FDC_GetSidesPerDisk ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack ) == 1 ) )
+	/* If disk image has only one side or drive is single sided and we're trying to verify on 2nd side, then return false */
+	if ( ( FDC.SideSignal == 1  )
+	  && ( ( FDC_GetSidesPerDisk ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack ) != 2 )
+	    || ( FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads == 1 ) ) )
 	{
 		LOG_TRACE(TRACE_FDC, "fdc type I verify track failed TR=0x%x head=0x%x side=1 doesn't exist drive=%d VBL=%d video_cyc=%d %d@%d pc=%x\n",
 			FDC.TR , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.DriveSelSignal ,
@@ -1767,6 +1893,10 @@ static int FDC_UpdateMotorStop ( void )
 		LOG_TRACE(TRACE_FDC, "fdc motor stopped VBL=%d video_cyc=%d %d@%d pc=%x\n",
 			nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
+		FDC.IndexPulse_Counter = 0;
+		if ( FDC.DriveSelSignal >= 0 )                                  /* A drive was previously enabled */
+			FDC_DRIVES[ FDC.DriveSelSignal ].IndexPulse_Time = 0;   /* Stop counting index pulses on the drive */
+
 		FDC_Update_STR ( FDC_STR_BIT_MOTOR_ON , 0 );		/* Unset motor bit and keep spin up bit */
 		FDC.Command = FDCEMU_CMD_NULL;				/* Motor stopped, this is the last state */
 		FdcCycles = 0;
@@ -1783,7 +1913,6 @@ static int FDC_UpdateMotorStop ( void )
 static int FDC_UpdateRestoreCmd ( void )
 {
 	int	FdcCycles = 0;
-	int	NextSectorID_NbBytes;
 	int	FrameCycles, HblCounterVideo, LineCycles;
 
 	Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
@@ -1875,15 +2004,22 @@ static int FDC_UpdateRestoreCmd ( void )
 			break;
 		}
 
-		NextSectorID_NbBytes = FDC_NextSectorID_NbBytes();
-		if ( NextSectorID_NbBytes < 0 )
+		if ( FDC.DriveSelSignal < 0 )					/* No drive selected */
+			FdcCycles = -1;
+		else if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
+			FdcCycles = FDC_NextSectorID_FdcCycles_STX ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		else
+			FdcCycles = FDC_NextSectorID_FdcCycles_ST ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		if ( FdcCycles < 0 )
 		{
 			FdcCycles = FDC_DELAY_CYCLE_WAIT_NO_DRIVE_FLOPPY;	/* Wait for a valid drive/floppy */
 		}
 		else
 		{
 			/* Read bytes to reach the next sector's ID field and skip 10 more bytes to read the whole ID field */
-			FdcCycles = FDC_TransferByte_FdcCycles ( NextSectorID_NbBytes + 10 );	/* Add delay to read 3xA1, FE, ID field */
+			FdcCycles += FDC_TransferByte_FdcCycles ( 10 );		/* Add delay to read 3xA1, FE, ID field */
 			FDC.CommandState = FDCEMU_RUN_RESTORE_VERIFY_CHECK_SECTOR_HEADER;
 		}
 		break;
@@ -1918,7 +2054,6 @@ static int FDC_UpdateRestoreCmd ( void )
 static int FDC_UpdateSeekCmd ( void )
 {
 	int	FdcCycles = 0;
-	int	NextSectorID_NbBytes;
 	int	FrameCycles, HblCounterVideo, LineCycles;
 
 	Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
@@ -2019,15 +2154,22 @@ static int FDC_UpdateSeekCmd ( void )
 			break;
 		}
 
-		NextSectorID_NbBytes = FDC_NextSectorID_NbBytes();
-		if ( NextSectorID_NbBytes < 0 )
+		if ( FDC.DriveSelSignal < 0 )					/* No drive selected */
+			FdcCycles = -1;
+		else if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
+			FdcCycles = FDC_NextSectorID_FdcCycles_STX ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		else
+			FdcCycles = FDC_NextSectorID_FdcCycles_ST ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		if ( FdcCycles < 0 )
 		{
 			FdcCycles = FDC_DELAY_CYCLE_WAIT_NO_DRIVE_FLOPPY;	/* Wait for a valid drive/floppy */
 		}
 		else
 		{
 			/* Read bytes to reach the next sector's ID field and skip 10 more bytes to read the whole ID field */
-			FdcCycles = FDC_TransferByte_FdcCycles ( NextSectorID_NbBytes + 10 );	/* Add delay to read 3xA1, FE, ID field */
+			FdcCycles += FDC_TransferByte_FdcCycles ( 10 );		/* Add delay to read 3xA1, FE, ID field */
 			FDC.CommandState = FDCEMU_RUN_SEEK_VERIFY_CHECK_SECTOR_HEADER;
 		}
 		break;
@@ -2062,7 +2204,6 @@ static int FDC_UpdateSeekCmd ( void )
 static int FDC_UpdateStepCmd ( void )
 {
 	int	FdcCycles = 0;
-	int	NextSectorID_NbBytes;
 	int	FrameCycles, HblCounterVideo, LineCycles;
 
 	Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
@@ -2145,15 +2286,22 @@ static int FDC_UpdateStepCmd ( void )
 			break;
 		}
 
-		NextSectorID_NbBytes = FDC_NextSectorID_NbBytes();
-		if ( NextSectorID_NbBytes < 0 )
+		if ( FDC.DriveSelSignal < 0 )					/* No drive selected */
+			FdcCycles = -1;
+		else if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
+			FdcCycles = FDC_NextSectorID_FdcCycles_STX ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		else
+			FdcCycles = FDC_NextSectorID_FdcCycles_ST ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		if ( FdcCycles < 0 )
 		{
 			FdcCycles = FDC_DELAY_CYCLE_WAIT_NO_DRIVE_FLOPPY;	/* Wait for a valid drive/floppy */
 		}
 		else
 		{
 			/* Read bytes to reach the next sector's ID field and skip 10 more bytes to read the whole ID field */
-			FdcCycles = FDC_TransferByte_FdcCycles ( NextSectorID_NbBytes + 10 );	/* Add delay to read 3xA1, FE, ID field */
+			FdcCycles += FDC_TransferByte_FdcCycles ( 10 );		/* Add delay to read 3xA1, FE, ID field */
 			FDC.CommandState = FDCEMU_RUN_STEP_VERIFY_CHECK_SECTOR_HEADER;
 		}
 		break;
@@ -2189,8 +2337,9 @@ static int FDC_UpdateReadSectorsCmd ( void )
 {
 	int	FdcCycles = 0;
 	int	SectorSize;
-	int	NextSectorID_NbBytes;
 	int	FrameCycles, HblCounterVideo, LineCycles;
+	Uint8	Next_TR;
+	Uint8	Next_SR;
 
 	Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
 
@@ -2228,6 +2377,9 @@ static int FDC_UpdateReadSectorsCmd ( void )
 	 case FDCEMU_RUN_READSECTORS_READDATA_MOTOR_ON:
 		FDC.ReplaceCommandPossible = false;
 		FDC.IndexPulse_Counter = 0;
+		FDC.CommandState = FDCEMU_RUN_READSECTORS_READDATA_NEXT_SECTOR_HEADER;
+		FdcCycles = FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
+		break;
 	 case FDCEMU_RUN_READSECTORS_READDATA_NEXT_SECTOR_HEADER:
 		/* If we're looking for sector FDC.SR for more than 5 revolutions, we abort with RNF */
 		if ( FDC.IndexPulse_Counter >= FDC_DELAY_IP_ADDRESS_ID )
@@ -2237,21 +2389,38 @@ static int FDC_UpdateReadSectorsCmd ( void )
 			break;
 		}
 
-		NextSectorID_NbBytes = FDC_NextSectorID_NbBytes();
-		if ( NextSectorID_NbBytes < 0 )
+		if ( FDC.DriveSelSignal < 0 )					/* No drive selected */
+			FdcCycles = -1;
+		else if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
+			FdcCycles = FDC_NextSectorID_FdcCycles_STX ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		else
+			FdcCycles = FDC_NextSectorID_FdcCycles_ST ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		if ( FdcCycles < 0 )
 		{
 			FdcCycles = FDC_DELAY_CYCLE_WAIT_NO_DRIVE_FLOPPY;	/* Wait for a valid drive/floppy */
 		}
 		else
 		{
 			/* Read bytes to reach the next sector's ID field and skip 7 more bytes to reach SR in this ID field */
-			FdcCycles = FDC_TransferByte_FdcCycles ( NextSectorID_NbBytes + 7 );	/* Add delay to read 3xA1, FE, TR, SIDE, SR */
+			FdcCycles += FDC_TransferByte_FdcCycles ( 7 );		/* Add delay to read 3xA1, FE, TR, SIDE, SR */
 			FDC.CommandState = FDCEMU_RUN_READSECTORS_READDATA_CHECK_SECTOR_HEADER;
 		}
 		break;
 	 case FDCEMU_RUN_READSECTORS_READDATA_CHECK_SECTOR_HEADER:
-		/* Check if the current ID Field is the one we're looking for */
-		if ( FDC.NextSector_ID_Field_SR == FDC.SR )
+		/* Check if the current ID Field is the one we're looking for (same track/sector) */
+		if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
+		{
+			Next_TR = FDC_NextSectorID_TR_STX ();
+			Next_SR = FDC_NextSectorID_SR_STX ();
+		}
+		else
+		{
+			Next_TR = FDC_NextSectorID_TR_ST ();
+			Next_SR = FDC_NextSectorID_SR_ST ();
+		}
+		if ( ( Next_TR == FDC.TR ) && ( Next_SR == FDC.SR ) )
 		{
 			FDC.CommandState = FDCEMU_RUN_READSECTORS_READDATA_TRANSFER_START;
 			/* Read bytes to reach the sector's data : rest of ID field (length+crc) + GAP3a + GAP3b + 3xA1 + FB */
@@ -2266,26 +2435,37 @@ static int FDC_UpdateReadSectorsCmd ( void )
 		break;
 	 case FDCEMU_RUN_READSECTORS_READDATA_TRANSFER_START:
 		/* Read a single sector into temporary buffer (512 bytes for ST/MSA) */
-		if ( FDC_ReadSectorFromFloppy ( FDC.DriveSelSignal , DMADiskWorkSpace , FDC.SR , &SectorSize ) )
-		{
-			FDC_DMA.BytesToTransfer = SectorSize;		/* 512 bytes per sector for ST/MSA disk images */
-			FDC_DMA.PosInBuffer = 0;
+		FDC_Buffer_Reset();
 
-			FDC.CommandState = FDCEMU_RUN_READSECTORS_READDATA_TRANSFER_LOOP;
-			FdcCycles = FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
-		}
-		else							/* Sector FDC.SR was not found */
+		if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
+			FDC.Status_Temp = FDC_ReadSector_STX ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack ,
+				FDC.SR , FDC.SideSignal , &SectorSize );
+		else
+			FDC.Status_Temp = FDC_ReadSector_ST ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack ,
+				FDC.SR , FDC.SideSignal , &SectorSize );
+
+		if ( FDC.Status_Temp & FDC_STR_BIT_RNF )		/* Sector FDC.SR was not found */
 		{
 			FDC.CommandState = FDCEMU_RUN_READSECTORS_RNF;
 			FdcCycles = FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
 		}
+		else
+		{
+			if ( FDC.Status_Temp & FDC_STR_BIT_RECORD_TYPE )
+				FDC_Update_STR ( 0 , FDC_STR_BIT_RECORD_TYPE );
+			else
+				FDC_Update_STR ( FDC_STR_BIT_RECORD_TYPE , 0 );
+
+			FDC.CommandState = FDCEMU_RUN_READSECTORS_READDATA_TRANSFER_LOOP;
+			FdcCycles = FDC_Buffer_Read_Timing ();		/* Delay to transfer the first byte */
+		}
 		break;
 	 case FDCEMU_RUN_READSECTORS_READDATA_TRANSFER_LOOP:
 		/* Transfer the sector 1 byte at a time using DMA */
-		if ( FDC_DMA.BytesToTransfer-- > 0 )
+		FDC_DMA_FIFO_Push ( FDC_Buffer_Read_Byte () );		/* Add 1 byte to the DMA FIFO */
+		if ( FDC_BUFFER.PosRead < FDC_Buffer_Get_Size () )
 		{
-			FDC_DMA_FIFO_Push ( DMADiskWorkSpace [ FDC_DMA.PosInBuffer++ ] );	/* Add 1 byte to the DMA FIFO */
-			FdcCycles = FDC_TransferByte_FdcCycles ( 1 );
+			FdcCycles = FDC_Buffer_Read_Timing ();		/* Delay to transfer the next byte */
 		}
 		else							/* Sector transferred, check the CRC */
 		{
@@ -2294,12 +2474,31 @@ static int FDC_UpdateReadSectorsCmd ( void )
 		}
 		break;
 	 case FDCEMU_RUN_READSECTORS_CRC:
-		/* Sector completely transferred, CRC is always good for ST/MSA. Check for multi bit */
+		/* Sector completely transferred, CRC is always good for ST/MSA, but not always for STX */
+		if ( FDC.Status_Temp & FDC_STR_BIT_CRC_ERROR )
+		{
+			LOG_TRACE(TRACE_FDC, "fdc type II read sector=%d track=0x%x side=%d drive=%d CRC VBL=%d video_cyc=%d %d@%d pc=%x\n",
+				  FDC.SR , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal , FDC.DriveSelSignal , nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
+
+			FDC_Update_STR ( 0 , FDC_STR_BIT_CRC_ERROR );
+			FdcCycles = FDC_CmdCompleteCommon( true );
+		}
+		else
+		{
+			FDC.CommandState = FDCEMU_RUN_READSECTORS_MULTI;
+			FdcCycles = FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
+		}
+		break;
+	 case FDCEMU_RUN_READSECTORS_MULTI:
+		/* Check for multi bit */
 		if ( FDC.CR & FDC_COMMAND_BIT_MULTIPLE_SECTOR  )
 		{
 			FDC.SR++;					/* Try to read next sector and set RNF if not possible */
-			FDC.CommandState = FDCEMU_RUN_READSECTORS_READDATA;
+			FDC.CommandState = FDCEMU_RUN_READSECTORS_READDATA_MOTOR_ON;
 			FdcCycles = FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
+			LOG_TRACE(TRACE_FDC, "fdc type II read sector with multi sector=0x%x track=0x%x side=%d drive=%d addr=0x%x VBL=%d video_cyc=%d %d@%d pc=%x\n",
+				FDC.SR, FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal , FDC.DriveSelSignal ,
+				FDC_GetDMAAddress(), nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 		}
 		else							/* Multi=0, stop here with no error */
 		{
@@ -2308,8 +2507,8 @@ static int FDC_UpdateReadSectorsCmd ( void )
 		}
 		break;
 	 case FDCEMU_RUN_READSECTORS_RNF:
-		LOG_TRACE(TRACE_FDC, "fdc type II read sector=%d track=%d drive=%d RNF VBL=%d video_cyc=%d %d@%d pc=%x\n",
-			  FDC.SR , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.DriveSelSignal , nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
+		LOG_TRACE(TRACE_FDC, "fdc type II read sector=%d track=0x%x side=%d drive=%d RNF VBL=%d video_cyc=%d %d@%d pc=%x\n",
+			  FDC.SR , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal , FDC.DriveSelSignal , nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 		FDC_Update_STR ( 0 , FDC_STR_BIT_RNF );
 		FdcCycles = FDC_CmdCompleteCommon( true );
@@ -2331,7 +2530,6 @@ static int FDC_UpdateWriteSectorsCmd ( void )
 {
 	int	FdcCycles = 0;
 	int	SectorSize;
-	int	NextSectorID_NbBytes;
 	int	FrameCycles, HblCounterVideo, LineCycles;
 
 	Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
@@ -2341,8 +2539,8 @@ static int FDC_UpdateWriteSectorsCmd ( void )
 		&& ( FDC_DRIVES[ FDC.DriveSelSignal ].DiskInserted )
 		&& ( Floppy_IsWriteProtected ( FDC.DriveSelSignal ) ) )
 	{
-		LOG_TRACE(TRACE_FDC, "fdc type II write sector=%d track=%d drive=%d WPRT VBL=%d video_cyc=%d %d@%d pc=%x\n",
-			  FDC.SR , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.DriveSelSignal , nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
+		LOG_TRACE(TRACE_FDC, "fdc type II write sector=%d track=0x%x side=%d drive=%d WPRT VBL=%d video_cyc=%d %d@%d pc=%x\n",
+			  FDC.SR , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal , FDC.DriveSelSignal , nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 		FDC_Update_STR ( 0 , FDC_STR_BIT_WPRT );		/* Set WPRT bit */
 		FdcCycles = FDC_CmdCompleteCommon( true );
@@ -2393,21 +2591,28 @@ static int FDC_UpdateWriteSectorsCmd ( void )
 			break;
 		}
 
-		NextSectorID_NbBytes = FDC_NextSectorID_NbBytes();
-		if ( NextSectorID_NbBytes < 0 )
+		if ( FDC.DriveSelSignal < 0 )					/* No drive selected */
+			FdcCycles = -1;
+		else if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
+			FdcCycles = FDC_NextSectorID_FdcCycles_STX ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		else
+			FdcCycles = FDC_NextSectorID_FdcCycles_ST ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		if ( FdcCycles < 0 )
 		{
 			FdcCycles = FDC_DELAY_CYCLE_WAIT_NO_DRIVE_FLOPPY;	/* Wait for a valid drive/floppy */
 		}
 		else
 		{
 			/* Read bytes to reach the next sector's ID field and skip 7 more bytes to reach SR in this ID field */
-			FdcCycles = FDC_TransferByte_FdcCycles ( NextSectorID_NbBytes + 7 );	/* Add delay to read 3xA1, FE, TR, SIDE, SR */
+			FdcCycles += FDC_TransferByte_FdcCycles ( 7 );		/* Add delay to read 3xA1, FE, TR, SIDE, SR */
 			FDC.CommandState = FDCEMU_RUN_WRITESECTORS_WRITEDATA_CHECK_SECTOR_HEADER;
 		}
 		break;
 	 case FDCEMU_RUN_WRITESECTORS_WRITEDATA_CHECK_SECTOR_HEADER:
 		/* Check if the current ID Field is the one we're looking for */
-		if ( FDC.NextSector_ID_Field_SR == FDC.SR )
+		if ( FDC_NextSectorID_SR_ST () == FDC.SR )
 		{
 			FDC.CommandState = FDCEMU_RUN_WRITESECTORS_WRITEDATA_TRANSFER_START;
 			/* Read bytes to reach the sector's data : rest of ID field (length+crc) + GAP3a + GAP3b + 3xA1 + FB */
@@ -2451,11 +2656,16 @@ static int FDC_UpdateWriteSectorsCmd ( void )
 		}
 		break;
 	 case FDCEMU_RUN_WRITESECTORS_CRC:
-		/* Sector completely transferred, CRC is always good for ST/MSA. Check for multi bit */
+		/* Sector completely transferred, CRC is always good for ST/MSA */
+		FDC.CommandState = FDCEMU_RUN_WRITESECTORS_MULTI;
+		FdcCycles = FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
+		break;
+	 case FDCEMU_RUN_WRITESECTORS_MULTI:
+		/* Check for multi bit */
 		if ( FDC.CR & FDC_COMMAND_BIT_MULTIPLE_SECTOR  )
 		{
 			FDC.SR++;					/* Try to write next sector and set RNF if not possible */
-			FDC.CommandState = FDCEMU_RUN_WRITESECTORS_WRITEDATA;
+			FDC.CommandState = FDCEMU_RUN_WRITESECTORS_WRITEDATA_MOTOR_ON;
 			FdcCycles = FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
 		}
 		else							/* Multi=0, stop here with no error */
@@ -2465,8 +2675,8 @@ static int FDC_UpdateWriteSectorsCmd ( void )
 		}
 		break;
 	 case FDCEMU_RUN_WRITESECTORS_RNF:
-		LOG_TRACE(TRACE_FDC, "fdc type II write sector=%d track=%d drive=%d RNF VBL=%d video_cyc=%d %d@%d pc=%x\n",
-			  FDC.SR , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.DriveSelSignal , nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
+		LOG_TRACE(TRACE_FDC, "fdc type II write sector=%d track=0x%x side=%d drive=%d RNF VBL=%d video_cyc=%d %d@%d pc=%x\n",
+			  FDC.SR , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal , FDC.DriveSelSignal , nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
 
 		FDC_Update_STR ( 0 , FDC_STR_BIT_RNF );
 		FdcCycles = FDC_CmdCompleteCommon( true );
@@ -2487,10 +2697,6 @@ static int FDC_UpdateWriteSectorsCmd ( void )
 static int FDC_UpdateReadAddressCmd ( void )
 {
 	int	FdcCycles = 0;
-	Uint16	CRC;
-	Uint8	*p_start;
-	Uint8	*p;
-	int	NextSectorID_NbBytes;
 	int	FrameCycles, HblCounterVideo, LineCycles;
 
 	Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
@@ -2527,61 +2733,74 @@ static int FDC_UpdateReadAddressCmd ( void )
 		}
 		/* If there's no head settle, we go directly to the _MOTOR_ON state */
 	 case FDCEMU_RUN_READADDRESS_MOTOR_ON:
-		NextSectorID_NbBytes = FDC_NextSectorID_NbBytes();
-		if ( NextSectorID_NbBytes < 0 )
+		FDC.ReplaceCommandPossible = false;
+		FDC.IndexPulse_Counter = 0;
+		FDC.CommandState = FDCEMU_RUN_READADDRESS_NEXT_SECTOR_HEADER;
+		FdcCycles = FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
+		break;
+	 case FDCEMU_RUN_READADDRESS_NEXT_SECTOR_HEADER:
+		/* If we don't find a sector header after more than 5 revolutions, we abort with RNF */
+		if ( FDC.IndexPulse_Counter >= FDC_DELAY_IP_ADDRESS_ID )
+		{
+			FDC.CommandState = FDCEMU_RUN_READADDRESS_RNF;
+			FdcCycles = FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
+			break;
+		}
+
+		if ( FDC.DriveSelSignal < 0 )					/* No drive selected */
+			FdcCycles = -1;
+		else if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
+			FdcCycles = FDC_NextSectorID_FdcCycles_STX ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		else
+			FdcCycles = FDC_NextSectorID_FdcCycles_ST ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads ,
+					FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		if ( FdcCycles < 0 )
 		{
 			FdcCycles = FDC_DELAY_CYCLE_WAIT_NO_DRIVE_FLOPPY;	/* Wait for a valid drive/floppy */
 		}
 		else
 		{
 			/* Read bytes to reach the next sector's ID field */
-			FdcCycles = FDC_TransferByte_FdcCycles ( NextSectorID_NbBytes + 4 );	/* Add delay to read 3xA1, FE */
+			FdcCycles += FDC_TransferByte_FdcCycles ( 4 );		/* Add delay to read 3xA1, FE */
 			FDC.CommandState = FDCEMU_RUN_READADDRESS_TRANSFER_START;
 		}
 		break;
 	 case FDCEMU_RUN_READADDRESS_TRANSFER_START:
-		/* In the case of Hatari, only ST/MSA images are supported, so we build */
-		/* a standard ID field with a valid CRC based on current track/sector/side */
-		p_start = DMADiskWorkSpace;
-		p = p_start;
+		/* Read the ID field into buffer */
+		FDC_Buffer_Reset();
 
-		*p++ = 0xa1;					/* SYNC bytes and IAM byte are included in the CRC */
-		*p++ = 0xa1;
-		*p++ = 0xa1;
-		*p++ = 0xfe;
-		*p++ = FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack;
-		FDC.SR = FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack;	/* The 1st byte of the ID field is also copied into Sector Register */
-		*p++ = FDC.SideSignal;
-		*p++ = FDC.NextSector_ID_Field_SR;
-		*p++ = FDC_SECTOR_SIZE_512;			/* ST/MSA images are 512 bytes per sector */
+		if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
+			FDC.Status_Temp = FDC_ReadAddress_STX ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack ,
+				     FDC_NextSectorID_SR_STX () , FDC.SideSignal );
+		else
+			FDC.Status_Temp = FDC_ReadAddress_ST ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack ,
+				     FDC_NextSectorID_SR_ST () , FDC.SideSignal );
 
-		FDC_CRC16 ( p_start , 8 , &CRC );
-
-		*p++ = CRC >> 8;
-		*p++ = CRC & 0xff;
-
-		LOG_TRACE(TRACE_FDC, "fdc read address 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x VBL=%d video_cyc=%d %d@%d pc=%x\n",
-			p_start[4] , p_start[5] , p_start[6] , p_start[7] , p_start[8] , p_start[9] ,
-			nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
-
-		FDC_DMA.BytesToTransfer = 6;			/* 6 bytes per ID field */
-		FDC_DMA.PosInBuffer = 4;			/* Don't return the 3 x $A1 and $FE in the Address Field */
+		FDC.SR = FDC_BUFFER.Data[ 0 ].Byte;			/* The 1st byte of the ID field is also copied into Sector Register */
 
 		FDC.CommandState = FDCEMU_RUN_READADDRESS_TRANSFER_LOOP;
-		FdcCycles = FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
+		FdcCycles = FDC_Buffer_Read_Timing ();			/* Delay to transfer the first byte */
 		break;
 	 case FDCEMU_RUN_READADDRESS_TRANSFER_LOOP:
 		/* Transfer the ID field 1 byte at a time using DMA */
-		if ( FDC_DMA.BytesToTransfer-- > 0 )
+		FDC_DMA_FIFO_Push ( FDC_Buffer_Read_Byte () );		/* Add 1 byte to the DMA FIFO */
+		if ( FDC_BUFFER.PosRead < FDC_Buffer_Get_Size () )
 		{
-			FDC_DMA_FIFO_Push ( DMADiskWorkSpace [ FDC_DMA.PosInBuffer++ ] );	/* Add 1 byte to the DMA FIFO */
-			FdcCycles = FDC_TransferByte_FdcCycles ( 1 );
+			FdcCycles = FDC_Buffer_Read_Timing ();		/* Delay to transfer the next byte */
 		}
 		else
 		{
 			FDC.CommandState = FDCEMU_RUN_READADDRESS_COMPLETE;
 			FdcCycles = FDC_DELAY_CYCLE_COMMAND_COMPLETE;
 		}
+		break;
+	 case FDCEMU_RUN_READADDRESS_RNF:
+		LOG_TRACE(TRACE_FDC, "fdc type III read address track=0x%x side=%d drive=%d RNF VBL=%d video_cyc=%d %d@%d pc=%x\n",
+			  FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal , FDC.DriveSelSignal , nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
+
+		FDC_Update_STR ( 0 , FDC_STR_BIT_RNF );
+		FdcCycles = FDC_CmdCompleteCommon( true );
 		break;
 	 case FDCEMU_RUN_READADDRESS_COMPLETE:
 		FdcCycles = FDC_CmdCompleteCommon( true );
@@ -2599,12 +2818,10 @@ static int FDC_UpdateReadAddressCmd ( void )
 static int FDC_UpdateReadTrackCmd ( void )
 {
 	int	FdcCycles = 0;
-	Uint16	CRC;
-	Uint8	*buf;
-	Uint8	*buf_crc;
-	int	Sector;
-	int	SectorSize;
 	int	i;
+	int	FrameCycles, HblCounterVideo, LineCycles;
+
+	Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
 
 	/* Which command is running? */
 	switch (FDC.CommandState)
@@ -2638,7 +2855,8 @@ static int FDC_UpdateReadTrackCmd ( void )
 		}
 		/* If there's no head settle, we go directly to the _MOTOR_ON state */
 	 case FDCEMU_RUN_READTRACK_MOTOR_ON:
-		FdcCycles = FDC_NextIndexPulse_FdcCycles ();			/* Wait for the next index pulse */
+		FdcCycles = FDC_NextIndexPulse_FdcCycles ();		/* Wait for the next index pulse */
+//fprintf ( stderr , "read tr idx=%d %d\n" , FDC_IndexPulse_GetState() , FdcCycles );
 		if ( FdcCycles < 0 )
 		{
 			FdcCycles = FDC_DELAY_CYCLE_WAIT_NO_DRIVE_FLOPPY;	/* Wait for a valid drive/floppy */
@@ -2650,80 +2868,39 @@ static int FDC_UpdateReadTrackCmd ( void )
 		break;
 	 case FDCEMU_RUN_READTRACK_INDEX:
 		/* At this point, we have a valid drive/floppy, build the track data */
-		buf = DMADiskWorkSpace;
+		FDC_Buffer_Reset();
 
-		if ( ( FDC.SideSignal == 1 )					/* Try to read side 1 on a disk that doesn't have 2 sides */
-			&& ( FDC_GetSidesPerDisk ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack ) != 2 ) )
+		if ( ( FDC.SideSignal == 1 )				/* Try to read side 1 on a disk that doesn't have 2 sides or drive is single sided */
+			&& ( ( FDC_GetSidesPerDisk ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack ) != 2 )
+			  || ( FDC_DRIVES[ FDC.DriveSelSignal ].NumberOfHeads == 1 ) ) )
 		{
+			LOG_TRACE(TRACE_FDC, "fdc type III read track drive=%d track=%d side=%d, side not found VBL=%d video_cyc=%d %d@%d pc=%x\n",
+				  FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal ,
+				  nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
+
 			for ( i=0 ; i<FDC_GetBytesPerTrack ( FDC.DriveSelSignal ) ; i++ )
-				*buf++ = rand() & 0xff;				/* Fill the track buffer with random bytes */
+				FDC_Buffer_Add ( rand() & 0xff );	/* Fill the track buffer with random bytes */
 		}
-		
-		else								/* Track/side available in the disk image */
+		else if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
 		{
-			for ( i=0 ; i<FDC_TRACK_LAYOUT_STANDARD_GAP1 ; i++ )		/* GAP1 */
-				*buf++ = 0x4e;
-
-			for ( Sector=1 ; Sector <= FDC_GetSectorsPerTrack ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack ,
-				FDC.SideSignal ) ; Sector++ )
-			{
-				for ( i=0 ; i<FDC_TRACK_LAYOUT_STANDARD_GAP2 ; i++ )	/* GAP2 */
-					*buf++ = 0x00;
-
-				buf_crc = buf;
-				for ( i=0 ; i<3 ; i++ )		*buf++ = 0xa1;		/* SYNC (write $F5) */
-				*buf++ = 0xfe;						/* Index Address Mark */
-				*buf++ = FDC_DRIVES[ FDC.DriveSelSignal].HeadTrack;	/* Track */
-				*buf++ = FDC.SideSignal;				/* Side */
-				*buf++ = Sector;					/* Sector */
-				*buf++ = FDC_SECTOR_SIZE_512;				/* 512 bytes/sector for ST/MSA */
-				FDC_CRC16 ( buf_crc , buf - buf_crc , &CRC );
-				*buf++ = CRC >> 8;					/* CRC1 (write $F7) */
-				*buf++ = CRC & 0xff;					/* CRC2 */
-
-				for ( i=0 ; i<FDC_TRACK_LAYOUT_STANDARD_GAP3a ; i++ )	/* GAP3a */
-					*buf++ = 0x4e;
-				for ( i=0 ; i<FDC_TRACK_LAYOUT_STANDARD_GAP3b ; i++ )	/* GAP3b */
-					*buf++ = 0x00;
-
-				buf_crc = buf;
-				for ( i=0 ; i<3 ; i++ )		*buf++ = 0xa1;		/* SYNC (write $F5) */
-				*buf++ = 0xfb;						/* Data Address Mark */
-
-				if ( ! FDC_ReadSectorFromFloppy ( FDC.DriveSelSignal , buf , Sector , &SectorSize ) )	/* Read a single 512 bytes sector into temporary buffer */
-				{
-					/* Do nothing in case of error, we could put some random bytes, but this case should */
-					/* not happen with ST/MSA disk images, all sectors should be present on each track. */
-				}
-				buf += SectorSize;
-
-				FDC_CRC16 ( buf_crc , buf - buf_crc , &CRC );
-				*buf++ = CRC >> 8;					/* CRC1 (write $F7) */
-				*buf++ = CRC & 0xff;					/* CRC2 */
-
-				for ( i=0 ; i<FDC_TRACK_LAYOUT_STANDARD_GAP4 ; i++ )	/* GAP4 */
-					*buf++ = 0x4e;
-			}
-
-			while ( buf < DMADiskWorkSpace + FDC_GetBytesPerTrack ( FDC.DriveSelSignal ) )	/* Complete the track buffer */
-			      *buf++ = 0x4e;						/* GAP5 */
+			FDC.Status_Temp = FDC_ReadTrack_STX ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
 		}
-
-		/* Transfer Track data to RAM using DMA */
-		FDC_DMA.BytesToTransfer = FDC_GetBytesPerTrack ( FDC.DriveSelSignal );
-		FDC_DMA.PosInBuffer = 0;
+		else							/* Track/side available in the disk image */
+		{
+			FDC.Status_Temp = FDC_ReadTrack_ST ( FDC.DriveSelSignal , FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack , FDC.SideSignal );
+		}
 
 		FDC.CommandState = FDCEMU_RUN_READTRACK_TRANSFER_LOOP;
-		FdcCycles = FDC_DELAY_CYCLE_COMMAND_IMMEDIATE;
+		FdcCycles = FDC_Buffer_Read_Timing ();			/* Delay to transfer the first byte */
 		break;
 	 case FDCEMU_RUN_READTRACK_TRANSFER_LOOP:
 		/* Transfer the track 1 byte at a time using DMA */
-		if ( FDC_DMA.BytesToTransfer-- > 0 )
+		FDC_DMA_FIFO_Push ( FDC_Buffer_Read_Byte () );		/* Add 1 byte to the DMA FIFO */
+		if ( FDC_BUFFER.PosRead < FDC_Buffer_Get_Size () )
 		{
-			FDC_DMA_FIFO_Push ( DMADiskWorkSpace [ FDC_DMA.PosInBuffer++ ] );	/* Add 1 byte to the DMA FIFO */
-			FdcCycles = FDC_TransferByte_FdcCycles ( 1 );
+			FdcCycles = FDC_Buffer_Read_Timing ();		/* Delay to transfer the next byte */
 		}
-		else								/* Track completely transferred */
+		else							/* Track completely transferred */
 		{
 			FDC.CommandState = FDCEMU_RUN_READTRACK_COMPLETE;
 			FdcCycles = FDC_DELAY_CYCLE_COMMAND_COMPLETE;
@@ -3090,7 +3267,12 @@ static int FDC_TypeIV_ForceInterrupt ( void )
 	/* If a command was running, just remove busy bit and keep the current content of Status reg */
 	/* If FDC was idle, the content of Status reg is forced to type I */
 	if ( ( FDC.STR & FDC_STR_BIT_BUSY ) == 0 )			
+	{
 		FDC.StatusTypeI = true;
+
+		/* Starting a Force Int command when idle should set the motor bit and clear the spinup bit (verified on STF) */
+		FDC_Update_STR ( FDC_STR_BIT_SPIN_UP , FDC_STR_BIT_MOTOR_ON );	/* Clear spinup bit and set motor bit */
+	}
 
 	/* Get the interrupt's condition and set IRQ accordingly */
 	/* Most of the time a 0xD8 command is followed by a 0xD0 command to clear the IRQ signal */
@@ -3242,6 +3424,12 @@ static void FDC_ExecuteCommand ( void )
 	else								/* Type IV - Force Interrupt */
 		FdcCycles = FDC_ExecuteTypeIVCommands();
 
+	/* When a new command is executed, we clear InterruptCond on Index Pulse */
+	/* (in case it was set) but we don't clear InterruptCond Immediate, only */
+	/* a $D0 command can clear the immediate IRQ set by a $D8 command */
+	if ( Type != 4 )
+		FDC.InterruptCond &= FDC_INTERRUPT_COND_IMMEDIATE;	/* Clear bits 0,1,2 and keep bit 3 */
+	
 	FDC.ReplaceCommandPossible = true;				/* This new command can be replaced during the prepare+spinup phase */
 	FDC_StartTimer_FdcCycles ( FdcCycles , 0 );
 }
@@ -3331,6 +3519,7 @@ static void FDC_WriteTrackRegister ( void )
 	{
 		LOG_TRACE(TRACE_FDC, "fdc write 8604 fdc busy, track=0x%x may be ignored VBL=%d video_cyc=%d %d@%d pc=%x\n",
 			IoMem_ReadByte(0xff8605), nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
+//return;
 	}
 
 	FDC.TR = IoMem_ReadByte(0xff8605);
@@ -3385,6 +3574,8 @@ static void FDC_WriteDataRegister ( void )
  * Store byte in FDC/HDC registers or DMA sector count, when writing to $ff8604
  * When accessing FDC/HDC registers, a copy of $ff8604 should be kept in ff8604_recent_val
  * to be used later when reading unused bits at $ff8604/$ff8606
+ *
+ * NOTE [NP] : add 4 cycles wait state in all cases (sector count / FDC / HDC)
  */
 void FDC_DiskController_WriteWord ( void )
 {
@@ -3468,6 +3659,8 @@ void FDC_DiskController_WriteWord ( void )
  * - When accessing FDC/HDC registers, a copy of $ff8604 should be kept in ff8604_recent_val
  *   to be used later when reading unused bits at $ff8604/$ff8606
  * - DMA sector count can't be read, this will return ff8604_recent_val (verified on a real STF)
+ *
+ * NOTE [NP] : add 4 cycles wait state in that case, except when reading DMA sector count
  */
 void FDC_DiskControllerStatus_ReadWord ( void )
 {
@@ -3484,7 +3677,6 @@ void FDC_DiskControllerStatus_ReadWord ( void )
 		return;
 	}
 
-	M68000_WaitState(4);
 
 	/* Are we trying to read the DMA SectorCount ? */
 	if ( FDC_DMA.Mode & 0x10 )					/* Bit 4 */
@@ -3494,12 +3686,16 @@ void FDC_DiskControllerStatus_ReadWord ( void )
 
 	else if ( ( FDC_DMA.Mode & 0x0008) == 0x0008)			/* HDC status reg selected ? */
 	{
+		M68000_WaitState(4);					/* [NP] : possible, but not tested on real HW */
+
 		/* Return the HDC status byte */
 		DiskControllerByte = HDC_ReadCommandByte(FDC_DMA.Mode & 0x7);
 	}
 
 	else								/* It's a FDC register access */
 	{
+		M68000_WaitState(4);
+
 		FDC_reg = ( FDC_DMA.Mode & 0x6 ) >> 1;			/* Bits 1,2 (A0,A1) */
 
 		EmulationMode = FDC_GetEmulationMode();
@@ -3526,23 +3722,26 @@ void FDC_DiskControllerStatus_ReadWord ( void )
 					else
 					{
 						if ( FDC_DRIVES[ FDC.DriveSelSignal ].HeadTrack == 0 )
-							FDC_Update_STR ( 0 , FDC_STR_BIT_TR00 );	/* Set bit TR00 */
+							FDC_Update_STR ( 0 , FDC_STR_BIT_TR00 );	/* Set TR00 bit2 */
 						else
-							FDC_Update_STR ( FDC_STR_BIT_TR00 , 0 );	/* Unset bit TR00 */
+							FDC_Update_STR ( FDC_STR_BIT_TR00 , 0 );	/* Unset TR00 bit2 */
 
 						if ( FDC_IndexPulse_GetState () )
-							FDC_Update_STR ( 0 , FDC_STR_BIT_INDEX );	/* Set INDEX bit */
+							FDC_Update_STR ( 0 , FDC_STR_BIT_INDEX );	/* Set INDEX bit1 */
 						else
-							FDC_Update_STR ( FDC_STR_BIT_INDEX , 0 );	/* Unset INDEX bit */
+							FDC_Update_STR ( FDC_STR_BIT_INDEX , 0 );	/* Unset INDEX bit1 */
+
+						/* For Type I, always unset CRC ERROR  bit3 */
+						FDC_Update_STR ( FDC_STR_BIT_CRC_ERROR , 0 );
 
 						/* When there's no disk in drive, the floppy drive hardware can't see */
 						/* the difference with an inserted disk that would be write protected */
 						if ( ! FDC_DRIVES[ FDC.DriveSelSignal ].DiskInserted )
-							FDC_Update_STR ( 0 , FDC_STR_BIT_WPRT );	/* Set WPRT bit */
+							FDC_Update_STR ( 0 , FDC_STR_BIT_WPRT );	/* Set WPRT bit6 */
 						else if ( Floppy_IsWriteProtected ( FDC.DriveSelSignal ) )
-							FDC_Update_STR ( 0 , FDC_STR_BIT_WPRT );	/* Set WPRT bit */
+							FDC_Update_STR ( 0 , FDC_STR_BIT_WPRT );	/* Set WPRT bit6 */
 						else
-							FDC_Update_STR ( FDC_STR_BIT_WPRT , 0 );	/* Unset WPRT bit */
+							FDC_Update_STR ( FDC_STR_BIT_WPRT , 0 );	/* Unset WPRT bit6 */
 
 						/* Temporarily change the WPRT bit if we're in a transition phase */
 						/* regarding the disk in the drive (inserting or ejecting) */
@@ -3618,6 +3817,8 @@ void FDC_DiskControllerStatus_ReadWord ( void )
  * $86 - Selects data register
  * NOTE - OR above values with $100 is transfer from memory to floppy
  * Also if bit 4 is set, write to DMA sector count register
+ *
+ * NOTE [NP] : add 4 cycles wait state in that case
  */
 void FDC_DmaModeControl_WriteWord ( void )
 {
@@ -3631,6 +3832,8 @@ void FDC_DmaModeControl_WriteWord ( void )
 		M68000_BusError(IoAccessBaseAddress, BUS_ERROR_WRITE);
 		return;
 	}
+
+	M68000_WaitState(4);
 
 	Mode_prev = FDC_DMA.Mode;					/* Store previous to check for _read/_write toggle (DMA reset) */
 	FDC_DMA.Mode = IoMem_ReadWord(0xff8606);			/* Store to DMA Mode control */
@@ -3665,6 +3868,8 @@ void FDC_DmaModeControl_WriteWord ( void )
  * consider it's always '0')
  *
  * NOTE [NP] : unused bits 3-15 are the ones from the latest $ff8604 access (verified on real STF)
+ *
+ * NOTE [NP] : no 4 cycles wait state in that case
  */
 void FDC_DmaStatus_ReadWord ( void )
 {
@@ -3783,27 +3988,264 @@ void FDC_WriteDMAAddress ( Uint32 Address )
 
 /*-----------------------------------------------------------------------*/
 /**
- * Read sector from floppy drive into workspace
- * We copy the bytes in chunks to simulate reading of the floppy using DMA
- * Drive should be a valid drive (0 or 1)
+ * Return the number of FDC cycles to wait before reaching the next
+ * sector's ID Field in the track ($A1 $A1 $A1 $FE TR SIDE SR LEN CRC1 CRC2)
+ * If no ID Field is found before the end of the track, we use the 1st
+ * ID Field of the track (which simulates a full spin of the floppy).
+ * We also store the next sector's number into NextSector_ID_Field_SR
+ * and the next track's number into NextSector_ID_Field_TR.
+ * This function assumes some 512 byte sectors stored in ascending
+ * order (for ST/MSA)
+ * If there's no available drive/floppy, we return -1
  */
-static bool FDC_ReadSectorFromFloppy ( int Drive , Uint8 *buf , Uint8 Sector , int *pSectorSize )
+static int	FDC_NextSectorID_FdcCycles_ST ( Uint8 Drive , Uint8 NumberOfHeads , Uint8 Track , Uint8 Side )
 {
-	int FrameCycles, HblCounterVideo, LineCycles;
+	int	CurrentPos;
+	int	MaxSector;
+	int	TrackPos;
+	int	i;
+	int	NextSector;
+	int	NbBytes;
+
+	CurrentPos = FDC_IndexPulse_GetCurrentPos_NbBytes ();
+	if ( CurrentPos < 0 )						/* No drive/floppy available at the moment */
+		return -1;
+
+	if ( ( Side == 1 ) && ( NumberOfHeads == 1 ) )			/* Can't read side 1 on a single sided drive */
+		return -1;
+
+	MaxSector = FDC_GetSectorsPerTrack ( Drive , Track , Side );
+	TrackPos = FDC_TRACK_LAYOUT_STANDARD_GAP1;			/* Position of 1st raw sector */
+	TrackPos += FDC_TRACK_LAYOUT_STANDARD_GAP2;			/* Position of ID Field in 1st raw sector */
+
+	/* Compare CurrentPos with each sector's position in ascending order */
+	for ( i=0 ; i<MaxSector ; i++ )
+	{
+		if ( CurrentPos < TrackPos )
+			break;						/* We found the next sector */
+		else
+			TrackPos += FDC_TRACK_LAYOUT_STANDARD_RAW_SECTOR_512;
+	}
+
+	if ( i == MaxSector )						/* CurrentPos is after the last ID Field of this track */
+	{
+		/* Reach end of track (new index pulse), then go to sector 1 */
+		NbBytes = FDC_GetBytesPerTrack ( Drive ) - CurrentPos + FDC_TRACK_LAYOUT_STANDARD_GAP1 + FDC_TRACK_LAYOUT_STANDARD_GAP2;
+		NextSector = 1;
+	}
+	else								/* There's an ID Field before end of track */
+	{
+		NbBytes = TrackPos - CurrentPos;
+		NextSector = i+1;
+	}
+
+//fprintf ( stderr , "fdc bytes next sector pos=%d trpos=%d nbbytes=%d maxsr=%d nextsr=%d\n" , CurrentPos, TrackPos, NbBytes, MaxSector, NextSector );
+	FDC.NextSector_ID_Field_TR = Track;
+	FDC.NextSector_ID_Field_SR = NextSector;
+
+	return FDC_TransferByte_FdcCycles ( NbBytes );
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Return the value of the track number in the next ID field set by
+ * FDC_NextSectorID_FdcCycles_ST (for ST/MSA, it's always HeadTrack value)
+ */
+static Uint8	FDC_NextSectorID_TR_ST ( void )
+{
+	return FDC.NextSector_ID_Field_TR;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Return the value of the sector number in the next ID field set by
+ * FDC_NextSectorID_FdcCycles_ST.
+ */
+static Uint8	FDC_NextSectorID_SR_ST ( void )
+{
+	return FDC.NextSector_ID_Field_SR;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Read a sector from a floppy image in ST format (used in type II command)
+ * Each byte of the sector is added to the FDC buffer with a default timing
+ * (32 microsec)
+ * Return 0 if sector was read without error, or FDC_STR_BIT_RNF if an error occurred
+ * (FDC_STR_BIT_CRC_ERROR and FDC_STR_BIT_RECORD_TYPE are always set 0 for ST/MSA)
+ */
+static Uint8 FDC_ReadSector_ST ( Uint8 Drive , Uint8 Track , Uint8 Sector , Uint8 Side , int *pSectorSize )
+{
+	int	FrameCycles, HblCounterVideo, LineCycles;
+	int	i;
+	Uint8	*pSectorData;
 
 	Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
 
-	LOG_TRACE(TRACE_FDC, "fdc read sector addr=0x%x drive=%d sect=%d track=%d side=%d VBL=%d video_cyc=%d %d@%d pc=%x\n" ,
-		FDC_GetDMAAddress(), Drive, Sector, FDC_DRIVES[ Drive ].HeadTrack, FDC.SideSignal,
+	LOG_TRACE(TRACE_FDC, "fdc read sector addr=0x%x drive=%d track=%d sect=%d side=%d VBL=%d video_cyc=%d %d@%d pc=%x\n" ,
+		FDC_GetDMAAddress(), Drive, Track, Sector, Side,
 		nVBLs , FrameCycles, LineCycles, HblCounterVideo , M68000_GetPC() );
 
-	/* Copy 1 sector to our workspace */
-	if ( Floppy_ReadSectors ( Drive, buf, Sector, FDC_DRIVES[ Drive ].HeadTrack, FDC.SideSignal, 1, NULL, pSectorSize ) )
-		return true;
+	/* Copy 1 sector to our workspace, then convert the workspace into bytes/timings */
+	if ( Floppy_ReadSectors ( Drive, &pSectorData, Sector, Track, Side, 1, NULL, pSectorSize ) )
+	{
+		for ( i=0 ; i<*pSectorSize ; i++ )
+			FDC_Buffer_Add ( pSectorData[ i ] );
+		return 0;						/* No error */
+	}
 
 	/* Failed */
 	LOG_TRACE(TRACE_FDC, "fdc read sector failed\n" );
-	return false;
+	return FDC_STR_BIT_RNF;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Read an address field from a floppy image in ST format (used in type III command)
+ * As ST images don't have address field, we compute a standard one based
+ * on the current track/sector/side.
+ * Each byte of the ID field is added to the FDC buffer with a default timing
+ * (32 microsec)
+ * Always return 0 = OK (FDC_STR_BIT_CRC_ERROR and FDC_STR_BIT_RNF are
+ * always set 0 for ST/MSA)
+ */
+static Uint8 FDC_ReadAddress_ST ( Uint8 Drive , Uint8 Track , Uint8 Sector , Uint8 Side )
+{
+	int	FrameCycles, HblCounterVideo, LineCycles;
+	Uint8	buf_id[ 10 ];						/* 3 SYNC + IAM + TR + SIDE + SECTOR + SIZE + CRC1 + CRC2 */
+	Uint8	*p;
+	Uint16	CRC;
+	int	i;
+
+	Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+
+	p = buf_id;
+
+	*p++ = 0xa1;							/* SYNC bytes and IAM byte are included in the CRC */
+	*p++ = 0xa1;
+	*p++ = 0xa1;
+	*p++ = 0xfe;
+	*p++ = Track;
+	*p++ = Side;
+	*p++ = Sector;
+	*p++ = FDC_SECTOR_SIZE_512;					/* ST/MSA images are 512 bytes per sector */
+
+	FDC_CRC16 ( buf_id , 8 , &CRC );
+
+	*p++ = CRC >> 8;
+	*p++ = CRC & 0xff;
+
+	/* 6 bytes per ID field,  don't return the 3 x $A1 and $FE */
+	for ( i=4 ; i<10 ; i++ )
+		FDC_Buffer_Add ( buf_id[ i ] );
+	
+	LOG_TRACE(TRACE_FDC, "fdc read address 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x VBL=%d video_cyc=%d %d@%d pc=%x\n",
+		buf_id[4] , buf_id[5] , buf_id[6] , buf_id[7] , buf_id[8] , buf_id[9] ,
+		nVBLs, FrameCycles, LineCycles, HblCounterVideo, M68000_GetPC());
+
+	return 0;							/* No error */
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Read a track from a floppy image in ST format (used in type III command)
+ * As ST images don't have gaps,sync,..., we compute a standard track based
+ * on the current track/side.
+ * Each byte of the track is added to the FDC buffer with a default timing
+ * (32 microsec)
+ * Always return 0 = OK (we fill the track buffer in all cases)
+ */
+static Uint8 FDC_ReadTrack_ST ( Uint8 Drive , Uint8 Track , Uint8 Side )
+{
+	int	FrameCycles, HblCounterVideo, LineCycles;
+	Uint8	buf_id[ 10 ];						/* 3 SYNC + IAM + TR + SIDE + SECTOR + SIZE + CRC1 + CRC2 */
+	Uint8	*p;
+	Uint16	CRC;
+	int	Sector;
+	Uint8	*pSectorData;
+	int	SectorSize;
+	int	i;
+	
+	Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
+
+	LOG_TRACE(TRACE_FDC, "fdc type III read track drive=%d track=%d side=%d VBL=%d video_cyc=%d %d@%d pc=%x\n" ,
+		Drive, Track, Side, nVBLs , FrameCycles, LineCycles, HblCounterVideo , M68000_GetPC() );
+
+
+	for ( i=0 ; i<FDC_TRACK_LAYOUT_STANDARD_GAP1 ; i++ )		/* GAP1 */
+		FDC_Buffer_Add ( 0x4e );
+
+	for ( Sector=1 ; Sector <= FDC_GetSectorsPerTrack ( Drive , Track , Side ) ; Sector++ )
+	{
+		for ( i=0 ; i<FDC_TRACK_LAYOUT_STANDARD_GAP2 ; i++ )	/* GAP2 */
+			FDC_Buffer_Add ( 0x00 );
+
+		/* Add the ID field for the sector */
+		p = buf_id;
+		for ( i=0 ; i<3 ; i++ )		*p++ = 0xa1;		/* SYNC (write $F5) */
+		*p++ = 0xfe;						/* Index Address Mark */
+		*p++ = Track;						/* Track */
+		*p++ = Side;						/* Side */
+		*p++ = Sector;						/* Sector */
+		*p++ = FDC_SECTOR_SIZE_512;				/* 512 bytes/sector for ST/MSA */
+		FDC_CRC16 ( buf_id , 8 , &CRC );
+		*p++ = CRC >> 8;					/* CRC1 (write $F7) */
+		*p++ = CRC & 0xff;					/* CRC2 */
+
+		for ( i=0 ; i<10 ; i++ )				/* Add the ID field to the track data */
+			FDC_Buffer_Add ( buf_id[ i ] );
+
+		for ( i=0 ; i<FDC_TRACK_LAYOUT_STANDARD_GAP3a ; i++ )	/* GAP3a */
+			FDC_Buffer_Add ( 0x4e );
+		for ( i=0 ; i<FDC_TRACK_LAYOUT_STANDARD_GAP3b ; i++ )	/* GAP3b */
+			FDC_Buffer_Add ( 0x00 );
+
+		/* Add the data for the sector + build the CRC */
+		crc16_reset ( &CRC );
+		for ( i=0 ; i<3 ; i++ )
+		{
+			FDC_Buffer_Add ( 0xa1 );			/* SYNC (write $F5) */
+			crc16_add_byte ( &CRC , 0xa1 );
+		}
+
+		FDC_Buffer_Add ( 0xfb );				/* Data Address Mark */
+		crc16_add_byte ( &CRC , 0xfb );
+
+		if ( Floppy_ReadSectors ( Drive, &pSectorData, Sector, Track, Side, 1, NULL, &SectorSize ) )
+		{
+			for ( i=0 ; i<SectorSize ; i++ )
+			{
+				FDC_Buffer_Add ( pSectorData[ i ] );
+				crc16_add_byte ( &CRC , pSectorData[ i ] );
+			}
+		}
+		else
+		{
+			/* In case of error, we put some 0x00 bytes, but this case should */
+			/* not happen with ST/MSA disk images, all sectors should be present on each track */
+			for ( i=0 ; i<512 ; i++ )
+			{
+				FDC_Buffer_Add ( 0x00 );
+				crc16_add_byte ( &CRC , 0x00 );
+			}
+		}
+
+		FDC_Buffer_Add ( CRC >> 8 );				/* CRC1 (write $F7) */
+		FDC_Buffer_Add ( CRC & 0xff );				/* CRC2 */
+
+		for ( i=0 ; i<FDC_TRACK_LAYOUT_STANDARD_GAP4 ; i++ )	/* GAP4 */
+			FDC_Buffer_Add ( 0x4e );
+	}
+
+	while ( FDC_Buffer_Get_Size () < FDC_GetBytesPerTrack ( Drive ) )	/* Complete the track buffer */
+	      FDC_Buffer_Add ( 0x4e );					/* GAP5 */
+
+	return 0;							/* No error */
 }
 
 

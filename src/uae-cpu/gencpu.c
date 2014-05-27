@@ -68,6 +68,11 @@
 /* 2012/05/05	[NP]	In i_JMP, in case of address error, last_addr_for_exception_3 should not always	*/
 /*			be pc+6, (Sherman Cracktro in No Extra V2 compilation) (e.g. 'jmp (a2)' : pc+2)	*/
 /* 2013/03/17	[NP]	Add refill_prefetch for i_SUB, i_NEG, i_NEGX, i_NOT (similar to i_ADD/i_EOR)	*/
+/* 2014/03/07	[NP]	Add refill_prefetch for i_Move Dn,xxxx.l (Union Demo, Darkman, Parasol Stars)	*/
+/* 			Add refill_prefetch for i_Move #xxxx,(An) (Titan)				*/
+/* 2014/04/09	[NP]	Similar to CLR on 68000, Scc should do a read before doing the write and can	*/
+/*			give 2 wait states (sf $fffa07 in Chart Attack compilation by Gremlin)		*/
+/* 2014/04/11	[NP]	Add refill_prefetch for i_Move Dn,(An) (International 3D Tennis)		*/
 
 
 const char GenCpu_fileid[] = "Hatari gencpu.c : " __DATE__ " " __TIME__;
@@ -973,7 +978,11 @@ static void gen_opcode (unsigned long int opcode)
         genamode (curi->smode, "srcreg", curi->size, "src", 1, 0);
         genamode (curi->dmode, "dstreg", curi->size, "dst", 1, 0);
         printf ("\tsrc %c= dst;\n", curi->mnemo == i_OR ? '|' : curi->mnemo == i_AND ? '&' : '^');
-	printf("\trefill_prefetch (m68k_getpc(), 2);\n");	// FIXME [NP] For Operation Clean Streets - Automation 168, need better prefetch emulation
+
+	if ( ( curi->smode == Dreg ) && ( curi->dmode == absl ) )				// FIXME [NP] eor.x Dn,xxxx.l (Xenon 2 : eor.w d0,$40760)
+	  printf("\trefill_prefetch (m68k_getpc(), 6);\n");					// FIXME [NP] need better prefetch emulation
+	else
+	  printf("\trefill_prefetch (m68k_getpc(), 2);\n");	// FIXME [NP] eor.w d0,(a2)+ (Operation Clean Streets - Automation 168, need better prefetch emulation)
         genflags (flag_logical, curi->size, "src", "", "");
         genastore ("src", curi->dmode, "dstreg", curi->size, "dst");
         if(curi->size==sz_long && curi->dmode==Dreg)
@@ -1327,6 +1336,16 @@ static void gen_opcode (unsigned long int opcode)
 	if ( curi->dmode == Apdi )
 	  insn_n_cycles -= 2;			/* correct the wrong cycle count for -(An) */
 
+	if ( ( curi->smode == Dreg ) && ( curi->dmode == absl ) )				// FIXME [NP] move.x Dn,xxxx.l (Union Demo : move.w d1,$4c)
+												// FIXME [NP] move.x Dn,xxxx.l (Darkman : move.w d2,$2c04)
+	  printf("\trefill_prefetch (m68k_getpc(), 4);\n");					// FIXME [NP] need better prefetch emulation
+
+	else if ( (curi->size==sz_long) && ( curi->smode == imm ) && ( curi->dmode == Aind ) )	// FIXME [NP] move.l #$xxxx,(An) (Titan : move.l #$b0b0caca,(a4))
+	  printf("\trefill_prefetch (m68k_getpc(), 4);\n");					// FIXME [NP] need better prefetch emulation
+
+	else if ( (curi->size==sz_long) && ( curi->smode == Dreg ) && ( curi->dmode == Aind ) )	// FIXME [NP] move.l Dn,(An) (Int 3D Tennis : move.l d0,(a0))
+	  printf("\trefill_prefetch (m68k_getpc(), 0);\n");					// FIXME [NP] need better prefetch emulation
+
 	genflags (flag_logical, curi->size, "src", "", "");
 	genastore ("src", curi->dmode, "dstreg", curi->size, "dst");
 	break;
@@ -1658,6 +1677,19 @@ static void gen_opcode (unsigned long int opcode)
 	break;
     case i_Scc:
 	genamode (curi->smode, "srcreg", curi->size, "src", 2, 0);
+
+	/* [NP] Scc does a read before the write only on 68000 */
+	/* but there's no cycle penalty for doing the read */
+	if ( curi->smode != Dreg )			// only if destination is memory
+	  {
+	    if (curi->size==sz_byte)
+	      printf ("\tuae_s8 src = get_byte(srca);\n");
+	    else if (curi->size==sz_word)
+	      printf ("\tuae_s16 src = get_word(srca);\n");
+	    else if (curi->size==sz_long)
+	      printf ("\tuae_s32 src = get_long(srca);\n");
+	  }
+
 	start_brace ();
 	printf ("\tint val = cctrue(%d) ? 0xff : 0;\n", curi->cc);
 	genastore ("val", curi->smode, "srcreg", curi->size, "src");

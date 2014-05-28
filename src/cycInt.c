@@ -280,8 +280,7 @@ static void CycInt_UpdateInterrupt(void)
 	}
 
 	LOG_TRACE(TRACE_INT, "int upd video_cyc=%d cycle_over=%d cycle_sub=%"PRId64"\n",
-	          Cycles_GetCounter(CYCLES_COUNTER_VIDEO), nCyclesOver,
-	          CycleSubtract);
+	          Cycles_GetCounter(CYCLES_COUNTER_VIDEO), nCyclesOver, CycleSubtract);
 }
 
 

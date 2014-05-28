@@ -470,7 +470,8 @@ typedef struct {
 	bool		StatusTypeI;				/* When true, STR will report the status of a type I command */
 	int		IndexPulse_Counter;			/* To count the number of rotations when motor is ON */
 	Uint8		NextSector_ID_Field_TR;			/* Track value in the next ID Field after a call to FDC_NextSectorID_FdcCycles_ST() */
-	Uint8		NextSector_ID_Field_SR;			/* Sector Register from the ID Field after a call to FDC_NextSectorID_FdcCycles_ST() */
+	Uint8		NextSector_ID_Field_SR;			/* Sector value in the next ID Field after a call to FDC_NextSectorID_FdcCycles_ST() */
+	Uint8		NextSector_ID_Field_CRC_OK;		/* CRC OK or not in the next ID Field after a call to FDC_NextSectorID_FdcCycles_ST() */
 	Uint8		InterruptCond;				/* For a type IV force interrupt, contains the condition on the lower 4 bits */
 
 	int		EmulationMode;				/* FDC_EMULATION_MODE_INTERNAL or FDC_EMULATION_MODE_IPF */
@@ -600,6 +601,7 @@ static void	FDC_WriteDataRegister ( void );
 static int	FDC_NextSectorID_FdcCycles_ST ( Uint8 Drive , Uint8 NumberOfHeads , Uint8 Track , Uint8 Side );
 static Uint8	FDC_NextSectorID_TR_ST ( void );
 static Uint8	FDC_NextSectorID_SR_ST ( void );
+static Uint8	FDC_NextSectorID_CRC_OK_ST ( void );
 static Uint8	FDC_ReadSector_ST ( Uint8 Drive , Uint8 Track , Uint8 Sector , Uint8 Side , int *pSectorSize );
 static Uint8	FDC_ReadAddress_ST ( Uint8 Drive , Uint8 Track , Uint8 Sector , Uint8 Side );
 static Uint8	FDC_ReadTrack_ST ( Uint8 Drive , Uint8 Track , Uint8 Side );
@@ -675,17 +677,17 @@ int	FDC_Get_StatusBar_Text ( char *text )
 		IPF_FDC_StatusBar ( &Command , &Head , &Track , &Sector , &Side );
 	}
 
-	if      ( ( Command & 0xf0 ) == 0x00 )	strcpy ( CommandText , "RE" );
-	else if ( ( Command & 0xf0 ) == 0x10 )	strcpy ( CommandText , "SE" );
-	else if ( ( Command & 0xe0 ) == 0x20 )	strcpy ( CommandText , "ST" );
-	else if ( ( Command & 0xe0 ) == 0x40 )	strcpy ( CommandText , "SI" );
-	else if ( ( Command & 0xe0 ) == 0x50 )	strcpy ( CommandText , "SO" );
-	else if ( ( Command & 0xe0 ) == 0x80 )	strcpy ( CommandText , "RS" );
-	else if ( ( Command & 0xe0 ) == 0xa0 )	strcpy ( CommandText , "WS" );
-	else if ( ( Command & 0xf0 ) == 0xc0 )	strcpy ( CommandText , "RA" );
-	else if ( ( Command & 0xf0 ) == 0xe0 )	strcpy ( CommandText , "RT" );
-	else if ( ( Command & 0xf0 ) == 0xf0 )	strcpy ( CommandText , "WT" );
-	else					strcpy ( CommandText , "FO" );
+	if      ( ( Command & 0xf0 ) == 0x00 )	strcpy ( CommandText , "RE" );		/* Restore */
+	else if ( ( Command & 0xf0 ) == 0x10 )	strcpy ( CommandText , "SE" );		/* Seek */
+	else if ( ( Command & 0xe0 ) == 0x20 )	strcpy ( CommandText , "ST" );		/* Step */
+	else if ( ( Command & 0xe0 ) == 0x40 )	strcpy ( CommandText , "SI" );		/* Step In */
+	else if ( ( Command & 0xe0 ) == 0x50 )	strcpy ( CommandText , "SO" );		/* Step Out */
+	else if ( ( Command & 0xe0 ) == 0x80 )	strcpy ( CommandText , "RS" );		/* Read Sector */
+	else if ( ( Command & 0xe0 ) == 0xa0 )	strcpy ( CommandText , "WS" );		/* Write Sector */
+	else if ( ( Command & 0xf0 ) == 0xc0 )	strcpy ( CommandText , "RA" );		/* Read Address */
+	else if ( ( Command & 0xf0 ) == 0xe0 )	strcpy ( CommandText , "RT" );		/* Read Track */
+	else if ( ( Command & 0xf0 ) == 0xf0 )	strcpy ( CommandText , "WT" );		/* Write Track */
+	else					strcpy ( CommandText , "FI" );		/* Force Int */
 
 	return sprintf ( text , "%s:%02X %02X:%02X:%02X:%d" , CommandText , Command , Head , Track , Sector , Side );
 }
@@ -2531,6 +2533,8 @@ static int FDC_UpdateWriteSectorsCmd ( void )
 	int	FdcCycles = 0;
 	int	SectorSize;
 	int	FrameCycles, HblCounterVideo, LineCycles;
+	Uint8	Next_TR;
+	Uint8	Next_SR;
 
 	Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
 
@@ -2611,8 +2615,19 @@ static int FDC_UpdateWriteSectorsCmd ( void )
 		}
 		break;
 	 case FDCEMU_RUN_WRITESECTORS_WRITEDATA_CHECK_SECTOR_HEADER:
-		/* Check if the current ID Field is the one we're looking for */
-		if ( FDC_NextSectorID_SR_ST () == FDC.SR )
+		/* Check if the current ID Field is the one we're looking for (same track/sector) */
+		if ( EmulationDrives[ FDC.DriveSelSignal ].ImageType == FLOPPY_IMAGE_TYPE_STX )
+		{
+			Next_TR = FDC_NextSectorID_TR_STX ();
+			Next_SR = FDC_NextSectorID_SR_STX ();
+fprintf ( stderr, "FDC type II command 'write sector' does not work yet with STX\n");
+		}
+		else
+		{
+			Next_TR = FDC_NextSectorID_TR_ST ();
+			Next_SR = FDC_NextSectorID_SR_ST ();
+		}
+		if ( ( Next_TR == FDC.TR ) && ( Next_SR == FDC.SR ) )
 		{
 			FDC.CommandState = FDCEMU_RUN_WRITESECTORS_WRITEDATA_TRANSFER_START;
 			/* Read bytes to reach the sector's data : rest of ID field (length+crc) + GAP3a + GAP3b + 3xA1 + FB */
@@ -3992,8 +4007,9 @@ void FDC_WriteDMAAddress ( Uint32 Address )
  * sector's ID Field in the track ($A1 $A1 $A1 $FE TR SIDE SR LEN CRC1 CRC2)
  * If no ID Field is found before the end of the track, we use the 1st
  * ID Field of the track (which simulates a full spin of the floppy).
- * We also store the next sector's number into NextSector_ID_Field_SR
- * and the next track's number into NextSector_ID_Field_TR.
+ * We also store the next sector's number into NextSector_ID_Field_SR,
+ * the next track's number into NextSector_ID_Field_TR and if the CRC is correct
+ * or not into NextSector_ID_Field_CRC_OK
  * This function assumes some 512 byte sectors stored in ascending
  * order (for ST/MSA)
  * If there's no available drive/floppy, we return -1
@@ -4042,6 +4058,7 @@ static int	FDC_NextSectorID_FdcCycles_ST ( Uint8 Drive , Uint8 NumberOfHeads , U
 //fprintf ( stderr , "fdc bytes next sector pos=%d trpos=%d nbbytes=%d maxsr=%d nextsr=%d\n" , CurrentPos, TrackPos, NbBytes, MaxSector, NextSector );
 	FDC.NextSector_ID_Field_TR = Track;
 	FDC.NextSector_ID_Field_SR = NextSector;
+	FDC.NextSector_ID_Field_CRC_OK = 1;				/* CRC is always correct for ST/MSA */
 
 	return FDC_TransferByte_FdcCycles ( NbBytes );
 }
@@ -4066,6 +4083,19 @@ static Uint8	FDC_NextSectorID_TR_ST ( void )
 static Uint8	FDC_NextSectorID_SR_ST ( void )
 {
 	return FDC.NextSector_ID_Field_SR;
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Return the status of the CRC in the next ID field set by
+ * FDC_NextSectorID_FdcCycles_ST.
+ * If '0', CRC is bad, else CRC is OK
+ * For ST/MSA, CRC is always OK
+ */
+static Uint8	FDC_NextSectorID_CRC_OK_ST ( void )
+{
+	return FDC.NextSector_ID_Field_CRC_OK;
 }
 
 

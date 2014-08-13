@@ -973,9 +973,14 @@ static int GemDOS_FileName2HardDriveID(char *pszFileName)
  */
 static char* match_host_dir_entry(const char *path, const char *name, bool pattern)
 {
+#define MAX_UTF8_NAME_LEN (3*(8+1+3)+1) /* UTF-8 can have up to 3 bytes per character */
 	struct dirent *entry;
 	char *match = NULL;
 	DIR *dir;
+	char nameHost[MAX_UTF8_NAME_LEN];
+
+	Str_AtariToHost(name, nameHost, MAX_UTF8_NAME_LEN, INVALID_CHAR);
+	name = nameHost;
 	
 	dir = opendir(path);
 	if (!dir)
@@ -988,6 +993,7 @@ static char* match_host_dir_entry(const char *path, const char *name, bool patte
 	{
 		while ((entry = readdir(dir)))
 		{
+			Str_DecomposedToPrecomposedUtf8(entry->d_name, entry->d_name);   /* for OSX */
 			if (fsfirst_match(name, entry->d_name))
 			{
 				match = strdup(entry->d_name);
@@ -999,6 +1005,7 @@ static char* match_host_dir_entry(const char *path, const char *name, bool patte
 	{
 		while ((entry = readdir(dir)))
 		{
+			Str_DecomposedToPrecomposedUtf8(entry->d_name, entry->d_name);   /* for OSX */
 			if (strcasecmp(name, entry->d_name) == 0)
 			{
 				match = strdup(entry->d_name);
@@ -1180,7 +1187,8 @@ static bool add_path_component(char *path, int maxlen, const char *origname, boo
 	while (*origname)
 		*tmp++ = chr_conv(*origname++);
 	*tmp = '\0';
-	strncat(path+pathlen, name, maxlen-pathlen);
+	/* strncat(path+pathlen, name, maxlen-pathlen); */
+	Str_AtariToHost(name, path+pathlen, maxlen-pathlen, INVALID_CHAR);
 	return false;
 }
 
@@ -1199,18 +1207,13 @@ static bool add_path_component(char *path, int maxlen, const char *origname, boo
 static void add_remaining_path(const char *src, char *dstpath, int dstlen)
 {
 	char *dst;
-	int i;
+	int i = strlen(dstpath);
 
-	dstlen--;
-	i = strlen(dstpath);
-	for (dst = dstpath + i; *src && i < dstlen; dst++, src++, i++)
-	{
-		if (*src == '\\')
+	Str_AtariToHost(src, dstpath+i, dstlen-i, INVALID_CHAR);
+
+	for (dst = dstpath + i; *dst; dst++)
+		if (*dst == '\\')
 			*dst = PATHSEP;
-		else
-			*dst = *src;
-	}
-	*dst = '\0';
 }
 
 
@@ -1286,7 +1289,7 @@ void GemDOS_CreateHardDriveFileName(int Drive, const char *pszFileName,
 	/* "../" handling breaks if there are extra slashes */
 	File_CleanFileName(pszDestName);
 	
-	/* go through path directory components, advacing 'filename'
+	/* go through path directory components, advancing 'filename'
 	 * pointer while parsing them.
 	 */
 	for (;;)
@@ -1362,7 +1365,8 @@ void GemDOS_CreateHardDriveFileName(int Drive, const char *pszFileName,
 				pszDestName[len] = '\0';
 			}
 			/* use strncat so that string is always nul terminated */
-			strncat(pszDestName+len, filename, nDestNameLen-len);
+			/* strncat(pszDestName+len, filename, nDestNameLen-len); */
+			Str_AtariToHost(filename, pszDestName+len, nDestNameLen-len, INVALID_CHAR);
 		}
 		else if (!add_path_component(pszDestName, nDestNameLen, filename, false))
 		{
@@ -2719,6 +2723,7 @@ static bool GemDOS_SFirst(Uint32 Params)
 	j = 0;
 	for (i=0; i < count; i++)
 	{
+		Str_DecomposedToPrecomposedUtf8(files[i]->d_name, files[i]->d_name);   /* for OSX */
 		if (fsfirst_match(dirmask, files[i]->d_name))
 		{
 			InternalDTAs[DTAIndex].found[j] = files[i];

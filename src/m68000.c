@@ -67,6 +67,9 @@
 /* 2015/02/05	[NP]	For the new WinUAE's cpu, don't use ExceptionSource anymore when calling	*/
 /*			Exception().									*/
 /* 2015/02/11	[NP]	Replace BusErrorPC by regs.instruction_pc, to get similar code to WinUAE's cpu  */
+/* 2015/10/08	[NP]	Add M68000_AddCycles_CE() to handle cycles when running with WinUAE's cpu in	*/
+/*			'cycle exact' mode. In that case, instruction pairing don't have to be handled	*/
+/*			with some tables/heuristics anymore.						*/
 
 
 const char M68000_fileid[] = "Hatari m68000.c : " __DATE__ " " __TIME__;
@@ -95,10 +98,10 @@ const char M68000_fileid[] = "Hatari m68000.c : " __DATE__ " " __TIME__;
 /* information about current CPU instruction */
 cpu_instruction_t CpuInstruction;
 
-Uint32 BusErrorAddress;         /* Stores the offending address for bus-/address errors */
-bool bBusErrorReadWrite;        /* 0 for write error, 1 for read error */
-int nCpuFreqShift;              /* Used to emulate higher CPU frequencies: 0=8MHz, 1=16MHz, 2=32Mhz */
-int nWaitStateCycles;           /* Used to emulate the wait state cycles of certain IO registers */
+Uint32 BusErrorAddress;		/* Stores the offending address for bus-/address errors */
+bool bBusErrorReadWrite;	/* 0 for write error, 1 for read error */
+int nCpuFreqShift;		/* Used to emulate higher CPU frequencies: 0=8MHz, 1=16MHz, 2=32Mhz */
+int WaitStateCycles = 0;	/* Used to emulate the wait state cycles of certain IO registers */
 int BusMode = BUS_MODE_CPU;	/* Used to tell which part is owning the bus (cpu, blitter, ...) */
 bool CPU_IACK = false;		/* Set to true during an exception when getting the interrupt's vector number */
 
@@ -559,11 +562,20 @@ void M68000_Exception(Uint32 ExceptionNr , int ExceptionSource)
 #else
 	if ( ExceptionNr > 24 && ExceptionNr < 32 )		/* Level 1-7 interrupts */
 	{
+#if 0
 		/* In our case, this part is called for HBL, VBL and MFP/DSP interrupts */
 		/* (see intlev() and do_specialties() in UAE CPU core) */
 		int intnr = ExceptionNr - 24;
 		pendingInterrupts |= (1 << intnr);
 		doint();
+#else
+		/* In our case, this part is called for HBL, VBL and MFP/DSP interrupts */
+		/* For WinUAE CPU, we must call M68000_Update_intlev after changing pendingInterrupts */
+		/* (in order to call doint() and to update regs.ipl with regs.ipl_pin, else */
+		/* the exception might be delayed by one instruction in do_specialties()) */
+		pendingInterrupts |= (1 << ( ExceptionNr - 24 ));
+		M68000_Update_intlev();
+#endif
 	}
 
 	else							/* direct CPU exceptions */
@@ -623,17 +635,31 @@ void	M68000_Update_intlev ( void )
 
 /*-----------------------------------------------------------------------*/
 /**
- * There seem to be wait states when a program accesses certain hardware
- * registers on the ST. Use this function to simulate these wait states.
+ * There are some wait states when accessing certain hardware registers on the ST.
+ * This function simulates these wait states and add the corresponding cycles.
+ *
  * [NP] with some instructions like CLR, we have a read then a write at the
  * same location, so we may have 2 wait states (read and write) to add
- * (nWaitStateCycles should be reset to 0 after the cycles were added).
+ * (WaitStateCycles should be reset to 0 after all the cycles were added
+ * in run_xx() in newcpu.c).
+ *
+ * - When CPU runs in cycle exact mode, wait states are added immediately.
+ * - For other less precise modes, all the wait states are cumulated and added
+ *   after the instruction was processed.
  */
-void M68000_WaitState(int nCycles)
+void M68000_WaitState(int WaitCycles)
 {
-	M68000_SetSpecial(SPCFLAG_EXTRA_CYCLES);
+#ifndef WINUAE_FOR_HATARI
+	WaitStateCycles += WaitCycles;				/* Cumulate all the wait states for this instruction */
 
-	nWaitStateCycles += nCycles;	/* add all the wait states for this instruction */
+#else
+	if ( ConfigureParams.System.bCycleExactCpu )
+		currcycle += ( WaitCycles * CYCLE_UNIT / 2 );	/* Add wait states immediately to the CE cycles counter */
+	else
+	{
+		WaitStateCycles += WaitCycles;			/* Cumulate all the wait states for this instruction */
+	}
+#endif
 }
 
 

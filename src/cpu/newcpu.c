@@ -2175,6 +2175,7 @@ CHK:
 
 Illegal Instruction:
 Privilege violation:
+Trace:
 Line A:
 Line F:
 
@@ -2242,8 +2243,16 @@ static int iack_cycle(int nr)
 
 		if ( vector < 0 )						/* No DSP, check MFP */
 		{
-			M68000_AddCycles ( iack_start + CPU_IACK_CYCLES_MFP );
-	      // TODO : add CE cycles too
+			if ( currprefs.cpu_cycle_exact )
+			{
+				x_do_cycles ( ( iack_start + CPU_IACK_CYCLES_MFP ) * cpucycleunit );
+				/* Flush all CE cycles so far to update PendingInterruptCount */
+				M68000_AddCycles_CE ( currcycle * 2 / CYCLE_UNIT );
+				currcycle=0;
+			}
+			else
+				M68000_AddCycles ( iack_start + CPU_IACK_CYCLES_MFP );
+
 			CPU_IACK = true;
 			while ( ( PendingInterruptCount <= 0 ) && ( PendingInterruptFunction ) )
 				CALL_VAR(PendingInterruptFunction);
@@ -2253,18 +2262,36 @@ static int iack_cycle(int nr)
 	}
 	else if ( ( nr == 26 ) || ( nr == 28 ) )				/* HBL / VBL */
 	{
-		iack_start -= 2;			/* [NP] work in progress for e clock, TODO we need to check the complete sequence of interrupt micro code */
-		e_cycles = M68000_WaitEClock ();
-		//fprintf ( stderr , "wait e clock %d\n" , e_cycles);
+		if ( currprefs.cpu_cycle_exact )
+		{
+			/* In CE mode, iack_start = 0, no need to call x_do_cycles() */
+			//x_do_cycles ( ( iack_start + CPU_IACK_CYCLES_VIDEO + e_cycles ) * cpucycleunit );
+			/* Flush all CE cycles so far before calling M68000_WaitEClock() */
+			M68000_AddCycles_CE ( currcycle * 2 / CYCLE_UNIT );
+			currcycle = 0;
+		}
+		else
+			M68000_AddCycles ( iack_start );
 
-		M68000_AddCycles ( iack_start + CPU_IACK_CYCLES_VIDEO + e_cycles );
-	// TODO : add CE cycles too
+		e_cycles = M68000_WaitEClock ();
+//		fprintf ( stderr , "wait e clock %d\n" , e_cycles);
+
+		if ( currprefs.cpu_cycle_exact )
+		{
+			x_do_cycles ( ( e_cycles + CPU_IACK_CYCLES_VIDEO_CE ) * cpucycleunit );
+			/* Flush all CE cycles so far to update PendingInterruptCount */
+			M68000_AddCycles_CE ( currcycle * 2 / CYCLE_UNIT );
+			currcycle = 0;
+		}
+		else
+			M68000_AddCycles ( e_cycles + CPU_IACK_CYCLES_VIDEO );
+
 		CPU_IACK = true;
 		while ( ( PendingInterruptCount <= 0 ) && ( PendingInterruptFunction ) )
 			CALL_VAR(PendingInterruptFunction);
 		if ( MFP_UpdateNeeded == true )
 			MFP_UpdateIRQ ( 0 );					/* update MFP's state if some internal timers related to MFP expired */
-		pendingInterrupts &= ~( 1 << ( nr - 24 ) );			/* clear HBL or VBL pending bit */
+		pendingInterrupts &= ~( 1 << ( nr - 24 ) );			/* clear HBL or VBL pending bit (even if an MFP timer occurred during IACK) */
 		CPU_IACK = false;
 	}
 
@@ -2273,6 +2300,10 @@ static int iack_cycle(int nr)
 	if ( vector < 0 )
 	{
 	}
+
+	/* Add 4 idle cycles for CE mode. For non-CE mode, this will be counted in add_approximate_exception_cycles() */
+	if ( currprefs.cpu_cycle_exact )
+		x_do_cycles( 4 * cpucycleunit );
 #endif
 	return vector;
 }
@@ -2284,22 +2315,16 @@ static void Exception_ce000 (int nr)
 	int start, interrupt;
 	int vector_nr = nr;
 
-//fprintf ( stderr , "ex in %d %ld\n" , nr , currcycle );
-currcycle=0;
+//fprintf ( stderr , "ex in %d %ld %ld\n" , nr , currcycle , CyclesGlobalClockCounter );
 	start = 6;
-#ifndef WINUAE_FOR_HATARI
 	interrupt = nr >= 24 && nr < 24 + 8;
-#else
-	if ( nr >= 24 && nr < 24 + 8 )
-		interrupt = 1;
-#endif
 	if (!interrupt) {
 		start = 8;
 		if (nr == 7) // TRAPV
 			start = 0;
 		else if (nr >= 32 && nr < 32 + 16) // TRAP #x
 			start = 4;
-		else if (nr == 4 || nr == 8 || nr == 10 || nr == 11) // ILLG, PRIV, LINEA, LINEF
+		else if (nr == 4 || nr == 8 || nr == 9 || nr == 10 || nr == 11) // ILLG, PRIV, TRACE, LINEA, LINEF
 			start = 4;
 	}
 
@@ -2390,8 +2415,10 @@ currcycle=0;
 		}
 		exception_in_exception = 1;
 		x_put_word (m68k_areg (regs, 7) + 4, currpc); // write low address
+//fprintf ( stderr , "ex iack1 %d %ld\n" , nr , currcycle );
 		if (interrupt)
 			vector_nr = iack_cycle(nr);
+//fprintf ( stderr , "ex iack2 %d %ld\n" , nr , currcycle );
 		x_put_word (m68k_areg (regs, 7) + 0, regs.sr); // write SR
 		x_put_word (m68k_areg (regs, 7) + 2, currpc >> 16); // write high address
 	}
@@ -2417,26 +2444,9 @@ kludge_me_do:
 
 //fprintf ( stderr , "ex out %d %ld\n" , nr , currcycle );
 #ifdef WINUAE_FOR_HATARI
-	/* FIXME : Above code already counts 36 cycles for interrupt, add the remaining ST cycles */
-	/* This is temporary, code should be in iack_cycle() */
-	M68000_AddCycles(currcycle * 2 / CYCLE_UNIT);
-
-	/* Handle exception cycles (special case for MFP) */
-	if ( nr == 30 ) {
-		//M68000_AddCycles(44+12-CPU_IACK_CYCLES_MFP);	/* MFP interrupt, 'nr' can be in a different range depending on $fffa17 */
-		M68000_AddCycles(44-36);	/* MFP interrupt, 'nr' can be in a different range depending on $fffa17 */
-	}
-	else if (nr >= 24 && nr <= 31) {
-		if ( nr == 26 )					/* HBL */
-			//M68000_AddCycles(44+12-CPU_IACK_CYCLES_VIDEO);	/* Video Interrupt */
-			M68000_AddCycles(44-36);	/* Video Interrupt */
-		else if ( nr == 28 ) 				/* VBL */
-			//M68000_AddCycles(44+12-CPU_IACK_CYCLES_VIDEO);	/* Video Interrupt */
-			M68000_AddCycles(44-36);	/* Video Interrupt */
-		else
-			//M68000_AddCycles(44+4);			/* Other Interrupts */
-			M68000_AddCycles(44-36);			/* Other Interrupts */
-	}
+	/* Add all cycles needed for the exception */
+	M68000_AddCycles_CE ( currcycle * 2 / CYCLE_UNIT );
+	currcycle = 0;
 #endif
 }
 #endif
@@ -2613,12 +2623,7 @@ static void Exception_mmu030 (int nr, uaecptr oldpc)
     uae_u32 currpc = m68k_getpc (), newpc;
 	int interrupt;
 
-#ifndef WINUAE_FOR_HATARI
 	interrupt = nr >= 24 && nr < 24 + 8;
-#else
-	if ( nr >= 24 && nr < 24 + 8 )
-		interrupt = 1;
-#endif
 
 #ifdef WINUAE_FOR_HATARI
 	if (interrupt)
@@ -2691,12 +2696,7 @@ static void Exception_mmu (int nr, uaecptr oldpc)
 	uae_u32 currpc = m68k_getpc (), newpc;
 	int interrupt;
 
-#ifndef WINUAE_FOR_HATARI
 	interrupt = nr >= 24 && nr < 24 + 8;
-#else
-	if ( nr >= 24 && nr < 24 + 8 )
-		interrupt = 1;
-#endif
 
 #ifdef WINUAE_FOR_HATARI
 	if (interrupt)
@@ -2780,9 +2780,9 @@ static void add_approximate_exception_cycles(int nr)
 		else if ( nr == 28 )				/* VBL */
 			cycles = 56-CPU_IACK_CYCLES_START-CPU_IACK_CYCLES_VIDEO;
 		else if ( nr == 26 )				/* HBL */
-			cycles = 56-CPU_IACK_CYCLES_START- CPU_IACK_CYCLES_VIDEO;
+			cycles = 56-CPU_IACK_CYCLES_START-CPU_IACK_CYCLES_VIDEO;
 		else
-			cycles = 44+4;				/* Other interrupts */
+			cycles = 44+4;				/* Other interrupts (not used in Atari machines) */
 #endif
 	} else if (nr >= 32 && nr <= 47) {
 		/* Trap (total is 34, but cpuemux.c already adds 4) */ 
@@ -3823,9 +3823,11 @@ void doint (void)
 			return;
 	}
 #endif
+//fprintf ( stderr , "doint1 %d ipl=%x ipl_pin=%x intmask=%x spcflags=%x\n" , m68k_interrupt_delay,regs.ipl, regs.ipl_pin , regs.intmask, regs.spcflags );
 	if (m68k_interrupt_delay) {
 		regs.ipl_pin = intlev ();
 		unset_special (SPCFLAG_INT);
+//fprintf ( stderr , "doint2 %d ipl=%x ipl_pin=%x intmask=%x spcflags=%x\n" , m68k_interrupt_delay,regs.ipl, regs.ipl_pin , regs.intmask, regs.spcflags );
 		return;
 	}
 	if (currprefs.cpu_compatible && currprefs.cpu_model < 68020)
@@ -3993,6 +3995,7 @@ static int do_specialties (int cycles)
 	bool first = true;
 	while ((regs.spcflags & SPCFLAG_STOP) && !(regs.spcflags & SPCFLAG_BRK)) {
 	isstopped:
+//fprintf ( stderr , "stop wait %d %ld %ld\n" , currcycle , CyclesGlobalClockCounter );
 #ifndef WINUAE_FOR_HATARI
 		check_uae_int_request();
 		{
@@ -4020,8 +4023,12 @@ static int do_specialties (int cycles)
 		if (!first)
 		{
 			if ( currprefs.cpu_cycle_exact )
-				M68000_AddCycles(2);
-			else						/* TODO [NP] : always do only M68000_AddCycles(2) ? */
+			{
+				/* Flush all CE cycles so far to update PendingInterruptCount */
+				M68000_AddCycles_CE ( currcycle * 2 / CYCLE_UNIT );
+				currcycle = 0;
+			}
+			else
 				M68000_AddCycles(4);
 		}
 
@@ -4092,6 +4099,7 @@ static int do_specialties (int cycles)
 	}
 #endif
 
+//fprintf ( stderr , "dospec1 %d %d spcflags=%x ipl=%x ipl_pin=%x intmask=%x\n" , m68k_interrupt_delay,time_for_interrupt() , regs.spcflags , regs.ipl , regs.ipl_pin, regs.intmask );
 	if (m68k_interrupt_delay) {
 		if (time_for_interrupt ()) {
 			do_interrupt (regs.ipl);
@@ -4105,10 +4113,12 @@ static int do_specialties (int cycles)
 		}
 	}
 
+//fprintf ( stderr , "dospec2 %d %d spcflags=%x ipl=%x ipl_pin=%x intmask=%x\n" , m68k_interrupt_delay,time_for_interrupt() , regs.spcflags , regs.ipl , regs.ipl_pin, regs.intmask );
 	if (regs.spcflags & SPCFLAG_DOINT) {
 		unset_special (SPCFLAG_DOINT);
 		set_special (SPCFLAG_INT);
 	}
+//fprintf ( stderr , "dospec3 %d %d spcflags=%x ipl=%x ipl_pin=%x intmask=%x\n" , m68k_interrupt_delay,time_for_interrupt() , regs.spcflags , regs.ipl , regs.ipl_pin, regs.intmask );
 
 #ifdef WINUAE_FOR_HATARI
         if (regs.spcflags & SPCFLAG_DEBUGGER)
@@ -4288,11 +4298,10 @@ printf ( "run_1\n" );
 #ifdef WINUAE_FOR_HATARI
 				M68000_AddCyclesWithPairing(cpu_cycles * 2 / CYCLE_UNIT);
 
-				if (regs.spcflags & SPCFLAG_EXTRA_CYCLES) {
+        			if ( WaitStateCycles ) {
 					/* Add some extra cycles to simulate a wait state */
-					unset_special(SPCFLAG_EXTRA_CYCLES);
-					M68000_AddCycles(nWaitStateCycles);
-					nWaitStateCycles = 0;
+					M68000_AddCycles(WaitStateCycles);
+					WaitStateCycles = 0;
 				}
 
 				/* We can have several interrupts at the same time before the next CPU instruction */
@@ -4388,6 +4397,7 @@ printf ( "run_1_ce\n" );
 
 					Video_GetPosition ( &FrameCycles , &HblCounterVideo , &LineCycles );
 
+//fprintf ( stderr , "clock %ld\n" , CyclesGlobalClockCounter );
 					LOG_TRACE_PRINT ( "cpu video_cyc=%6d %3d@%3d : " , FrameCycles, LineCycles, HblCounterVideo );
 					m68k_disasm_file(stderr, m68k_getpc (), NULL, 1);
 				}
@@ -4434,18 +4444,9 @@ printf ( "run_1_ce\n" );
 				wait_memory_cycles();			// TODO NP : ici, ou plus bas ?
 #ifdef WINUAE_FOR_HATARI
 //fprintf ( stderr, "cyc_1ce %d\n" , currcycle );
-				/* HACK for Hatari: Adding cycles should of course not be done
-				* here in CE mode (so this should be removed later), but until
-				* we're really there, this helps to get this mode running
-				* at least to a basic extend! */
-				M68000_AddCyclesWithPairing(currcycle * 2 / CYCLE_UNIT);
-
-				if (regs.spcflags & SPCFLAG_EXTRA_CYCLES) {
-					/* Add some extra cycles to simulate a wait state */
-					unset_special(SPCFLAG_EXTRA_CYCLES);
-					M68000_AddCycles(nWaitStateCycles);
-					nWaitStateCycles = 0;
-				}
+				/* Flush all CE cycles so far to update PendingInterruptCount */
+				M68000_AddCycles_CE ( currcycle * 2 / CYCLE_UNIT );
+				currcycle = 0;
 
 				while ( ( PendingInterruptCount <= 0 ) && ( PendingInterruptFunction ) && ( ( regs.spcflags & SPCFLAG_STOP ) == 0 ) )
 					CALL_VAR(PendingInterruptFunction);		/* call the interrupt handler */
@@ -4739,11 +4740,10 @@ printf ( "run_mmu060\n" );
 #ifdef WINUAE_FOR_HATARI
 				M68000_AddCycles(cpu_cycles * 2 / CYCLE_UNIT);
 
-				if (regs.spcflags & SPCFLAG_EXTRA_CYCLES) {
+        			if ( WaitStateCycles ) {
 					/* Add some extra cycles to simulate a wait state */
-					unset_special(SPCFLAG_EXTRA_CYCLES);
-					M68000_AddCycles(nWaitStateCycles);
-					nWaitStateCycles = 0;
+					M68000_AddCycles(WaitStateCycles);
+					WaitStateCycles = 0;
 				}
 
 				while ( ( PendingInterruptCount <= 0 ) && ( PendingInterruptFunction ) && ( ( regs.spcflags & SPCFLAG_STOP ) == 0 ) )
@@ -4827,11 +4827,10 @@ printf ( "run_mmu040\n" );
 #ifdef WINUAE_FOR_HATARI
 				M68000_AddCycles(cpu_cycles * 2 / CYCLE_UNIT);
 
-				if (regs.spcflags & SPCFLAG_EXTRA_CYCLES) {
+        			if ( WaitStateCycles ) {
 					/* Add some extra cycles to simulate a wait state */
-					unset_special(SPCFLAG_EXTRA_CYCLES);
-					M68000_AddCycles(nWaitStateCycles);
-					nWaitStateCycles = 0;
+					M68000_AddCycles(WaitStateCycles);
+					WaitStateCycles = 0;
 				}
 
 				/* We can have several interrupts at the same time before the next CPU instruction */
@@ -4968,11 +4967,10 @@ insretry:
 #ifdef WINUAE_FOR_HATARI
 				M68000_AddCycles(cpu_cycles * 2 / CYCLE_UNIT);
 
-				if (regs.spcflags & SPCFLAG_EXTRA_CYCLES) {
+        			if ( WaitStateCycles ) {
 					/* Add some extra cycles to simulate a wait state */
-					unset_special(SPCFLAG_EXTRA_CYCLES);
-					M68000_AddCycles(nWaitStateCycles);
-					nWaitStateCycles = 0;
+					M68000_AddCycles(WaitStateCycles);
+					WaitStateCycles = 0;
 				}
 
 				/* We can have several interrupts at the same time before the next CPU instruction */
@@ -5057,14 +5055,7 @@ printf ( "run_3ce\n" );
 
 #ifdef WINUAE_FOR_HATARI
 //fprintf ( stderr, "cyc_3ce %d\n" , currcycle );
-				M68000_AddCycles(currcycle * 2 / CYCLE_UNIT);
-
-				if (regs.spcflags & SPCFLAG_EXTRA_CYCLES) {
-					/* Add some extra cycles to simulate a wait state */
-					unset_special(SPCFLAG_EXTRA_CYCLES);
-					M68000_AddCycles(nWaitStateCycles);
-					nWaitStateCycles = 0;
-				}
+				M68000_AddCycles_CE ( currcycle * 2 / CYCLE_UNIT );
 
 				/* We can have several interrupts at the same time before the next CPU instruction */
 				/* We must check for pending interrupt and call do_specialties_interrupt() only */
@@ -5134,11 +5125,10 @@ printf ( "run_3p\n" );
 #ifdef WINUAE_FOR_HATARI
 				M68000_AddCycles(cycles * 2 / CYCLE_UNIT);
 
-				if (regs.spcflags & SPCFLAG_EXTRA_CYCLES) {
+        			if ( WaitStateCycles ) {
 					/* Add some extra cycles to simulate a wait state */
-					unset_special(SPCFLAG_EXTRA_CYCLES);
-					M68000_AddCycles(nWaitStateCycles);
-					nWaitStateCycles = 0;
+					M68000_AddCycles(WaitStateCycles);
+					WaitStateCycles = 0;
 				}
 
 				/* We can have several interrupts at the same time before the next CPU instruction */
@@ -5314,14 +5304,7 @@ fprintf ( stderr , "cache valid %d tag1 %x lws1 %x ctag %x data %x mem=%x\n" , c
 
 #ifdef WINUAE_FOR_HATARI
 //fprintf ( stderr, "cyc_2ce %d\n" , currcycle );
-				M68000_AddCycles(currcycle * 2 / CYCLE_UNIT);
-
-				if (regs.spcflags & SPCFLAG_EXTRA_CYCLES) {
-					/* Add some extra cycles to simulate a wait state */
-					unset_special(SPCFLAG_EXTRA_CYCLES);
-					M68000_AddCycles(nWaitStateCycles);
-					nWaitStateCycles = 0;
-				}
+				M68000_AddCycles_CE ( currcycle * 2 / CYCLE_UNIT );
 
 				/* We can have several interrupts at the same time before the next CPU instruction */
 				/* We must check for pending interrupt and call do_specialties_interrupt() only */
@@ -5403,11 +5386,10 @@ printf ( "run_2p\n" );
 #ifdef WINUAE_FOR_HATARI
 				M68000_AddCycles(cpu_cycles * 2 / CYCLE_UNIT);
 
-				if (regs.spcflags & SPCFLAG_EXTRA_CYCLES) {
+        			if ( WaitStateCycles ) {
 					/* Add some extra cycles to simulate a wait state */
-					unset_special(SPCFLAG_EXTRA_CYCLES);
-					M68000_AddCycles(nWaitStateCycles);
-					nWaitStateCycles = 0;
+					M68000_AddCycles(WaitStateCycles);
+					WaitStateCycles = 0;
 				}
 
 				/* We can have several interrupts at the same time before the next CPU instruction */
@@ -5484,11 +5466,10 @@ printf ( "run_2\n" );
 //fprintf ( stderr , "cyc_2 %d\n" , cpu_cycles );
 				M68000_AddCyclesWithPairing(cpu_cycles * 2 / CYCLE_UNIT);
 
-				if (regs.spcflags & SPCFLAG_EXTRA_CYCLES) {
+        			if ( WaitStateCycles ) {
 					/* Add some extra cycles to simulate a wait state */
-					unset_special(SPCFLAG_EXTRA_CYCLES);
-					M68000_AddCycles(nWaitStateCycles);
-					nWaitStateCycles = 0;
+					M68000_AddCycles(WaitStateCycles);
+					WaitStateCycles = 0;
 				}
 
 				/* We can have several interrupts at the same time before the next CPU instruction */
@@ -7262,10 +7243,11 @@ void m68k_setstopped (void)
 	regs.stopped = 1;
 	/* A traced STOP instruction drops through immediately without
 	actually stopping.  */
-	if ((regs.spcflags & SPCFLAG_DOTRACE) == 0)
+	if ((regs.spcflags & SPCFLAG_DOTRACE) == 0) {
 		set_special (SPCFLAG_STOP);
-	else
+	} else {
 		m68k_resumestopped ();
+	}
 }
 
 void m68k_resumestopped (void)
@@ -7273,9 +7255,8 @@ void m68k_resumestopped (void)
 	if (!regs.stopped)
 		return;
 	regs.stopped = 0;
-	if (currprefs.cpu_cycle_exact) {
-		if (currprefs.cpu_model == 68000)
-			x_do_cycles (6 * cpucycleunit);
+	if (currprefs.cpu_cycle_exact && currprefs.cpu_model == 68000) {
+		x_do_cycles (6 * cpucycleunit);
 	}
 	fill_prefetch ();
 	unset_special (SPCFLAG_STOP);

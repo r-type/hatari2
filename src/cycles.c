@@ -15,7 +15,7 @@
 /* 2007/03/xx	[NP]	Use 'CurrentInstrCycles' to get a good approximation for	*/
 /*			Cycles_GetCounterOnReadAccess and Cycles_GetCounterOnWriteAccess*/
 /*			(this should work correctly with 'move' instruction).		*/
-/* 2008/04/14	[NP]	Take nWaitStateCycles into account when computing the value of	*/
+/* 2008/04/14	[NP]	Take WaitStateCycles into account when computing the value of	*/
 /*			Cycles_GetCounterOnReadAccess and Cycles_GetCounterOnWriteAccess*/
 /* 2008/12/21	[NP]	Use BusMode to adjust Cycles_GetCounterOnReadAccess and		*/
 /*			Cycles_GetCounterOnWriteAccess depending on who is owning the	*/
@@ -25,6 +25,9 @@
 /*			'Bird Mad Girl Show' demo's loader/protection)			*/
 /* 2012/08/19	[NP]	Add a global counter CyclesGlobalClockCounter to count cycles	*/
 /*			since the last reset.						*/
+/* 2015/10/04	[NP]	In Cycles_GetInternalCycleOnReadAccess / WriteAccess, use the	*/
+/*			sub-cycles provided by WinUAE cpu core when using cycle exact	*/
+/*			mode (instead of using heuristics for the most common opcodes).	*/
 
 
 const char Cycles_fileid[] = "Hatari cycles.c : " __DATE__ " " __TIME__;
@@ -34,6 +37,7 @@ const char Cycles_fileid[] = "Hatari cycles.c : " __DATE__ " " __TIME__;
 #include "memorySnapShot.h"
 #include "cycles.h"
 #include "ioMem.h"
+#include "hatari-glue.h"
 
 
 int	nCyclesMainCounter;			/* Main cycles counter since previous Cycles_UpdateCounters() */
@@ -122,24 +126,36 @@ static int Cycles_GetInternalCycleOnReadAccess(void)
 
 	if ( BusMode == BUS_MODE_BLITTER )
 	{
-		AddCycles = 4 + nWaitStateCycles;
+		AddCycles = 4 + WaitStateCycles;
 	}
+//#if 0
+#ifdef WINUAE_FOR_HATARI
+	/* When using WinUAE CPU in CE mode, 'currcycle' will be the number of cycles */
+	/* inside the current opcode just before accessing memory + 2 cycles. */
+	/* As memory accesses take 4 cycles, we just need to add 2 cycles to get */
+	/* the number of cycles when the read will be completed. */
+	/* (see wait_cpu_cycle_read() in custom.c) */
+	else if ( currprefs.cpu_cycle_exact )
+	{
+		AddCycles = currcycle*2/CYCLE_UNIT + 2;
+	}
+#endif
 	else							/* BUS_MODE_CPU */
 	{
 		/* TODO: Find proper cycles count depending on the opcode/family of the current instruction */
 		/* (e.g. movem is not correctly handled) */
 		Opcode = M68000_CurrentOpcode;
-		//fprintf ( stderr , "opcode=%x\n" , Opcode );
 
 		/* Assume we use 'move src,dst' : access cycle depends on dst mode */
-		if ( Opcode == 0x11f8 )				/* move.b xxx.w,xxx.w (eg MOVE.B $ffff8209.w,$26.w in Bird Mad Girl Show) */
-			AddCycles = CurrentInstrCycles + nWaitStateCycles - 8;		/* read is effective before the 8 write cycles for dst */
-		else if ( OpcodeFamily == i_MVPRM )					/* eg movep.l d0,$ffc3(a1) in E605 (STE) */
-			AddCycles = 12 + IoAccessInstrCount * 4;			/* [NP] FIXME, it works with E605 but gives 20-32 cycles instead of 16-28 */
+		if ( Opcode == 0x11f8 )							/* move.b xxx.w,xxx.w (eg MOVE.B $ffff8209.w,$26.w in Bird Mad Girl Show) */
+			AddCycles = 8 + WaitStateCycles;				/* read is effective after 8 cycles */
+
+		else if ( OpcodeFamily == i_MVPRM )					/* movep.l d0,$ffc3(a1) in E605 (STE) or movep.l d1,$fffb(a2) in RGBeast (STE) */
+			AddCycles = 4 + IoAccessInstrCount * 4 + WaitStateCycles;	/* [NP] FIXME, it works with RGBeast, but not with E605 */
 											/* something must be wrong in video.c */
-			/* FIXME : this should be : AddCycles = 4 + IoAccessInstrCount * 4, but this breaks e605 in video.c */
-		else
-			AddCycles = CurrentInstrCycles + nWaitStateCycles;		/* assume dest is reg : read is effective at the end of the instr */
+
+		else									/* assume the behaviour of a 'move' to Dn */
+			AddCycles = CurrentInstrCycles - 4 + WaitStateCycles;		/* read is effective 4 cycles before the end of the instr */
 	}
 
 	return AddCycles;
@@ -159,13 +175,25 @@ static int Cycles_GetInternalCycleOnWriteAccess(void)
 
 	if ( BusMode == BUS_MODE_BLITTER )
 	{
-		AddCycles = 4 + nWaitStateCycles;
+		AddCycles = 4 + WaitStateCycles;
 	}
+//#if 0
+#ifdef WINUAE_FOR_HATARI
+	/* When using WinUAE CPU in CE mode, 'currcycle' will be the number of cycles */
+	/* inside the current opcode just before accessing memory + 2 cycles. */
+	/* As memory accesses take 4 cycles, we just need to add 2 cycles to get */
+	/* the number of cycles when the write will be completed. */
+	/* (see wait_cpu_cycle_write() in custom.c) */
+	else if ( currprefs.cpu_cycle_exact )
+	{
+		AddCycles = currcycle*2/CYCLE_UNIT + 2;
+	}
+#endif
 	else							/* BUS_MODE_CPU */
 	{
 		/* TODO: Find proper cycles count depending on the type of the current instruction */
 		/* (e.g. movem is not correctly handled) */
-		AddCycles = CurrentInstrCycles + nWaitStateCycles;
+		AddCycles = CurrentInstrCycles + WaitStateCycles;
 
 		if ( ( OpcodeFamily == i_CLR ) || ( OpcodeFamily == i_NEG ) || ( OpcodeFamily == i_NEGX ) || ( OpcodeFamily == i_NOT ) )
 			;						/* Do nothing, the write is done during the last 4 cycles */
@@ -180,6 +208,9 @@ static int Cycles_GetInternalCycleOnWriteAccess(void)
 
 		else if ( ( OpcodeFamily == i_BCHG ) || ( OpcodeFamily == i_BCLR ) || ( OpcodeFamily == i_BSET ) )
 			;						/* Do nothing, the write is done during the last 4 cycles */
+
+		else if ( OpcodeFamily == i_MVPRM )			/* movep.l d0,$ffc3(a1) in E605 (STE) or movep.l d1,$fffb(a2) in RGBeast (STE) */
+			AddCycles = 4 + IoAccessInstrCount * 4 + WaitStateCycles;	/* [NP] FIXME, it works with RGBeast, but not with E605 */
 
 		else if ( OpcodeFamily == i_MVMLE )
 		{

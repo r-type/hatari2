@@ -16,8 +16,12 @@
 
 #include "readcpu.h"
 #include "m68k.h"
-#include "memory.h"
 
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#include "emumemory.h"
+#else
+#include "memory.h"
+#endif /* RETRO HACK */
 
 /* Possible exceptions sources for M68000_Exception() and Exception() */
 #define M68000_EXC_SRC_CPU	    1  /* Direct CPU exception */

@@ -11,8 +11,11 @@
 #include "main.h"
 #include "sysdeps.h"
 #include "maccess.h"
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#include "emumemory.h"
+#else
 #include "memory.h"
-
+#endif /* RETRO HACK */
 
 #if ENABLE_SMALL_MEM
 extern Uint8 *STRam;

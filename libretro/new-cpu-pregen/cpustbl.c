@@ -2,7 +2,11 @@
 #include "sysdeps.h"
 #include "hatari-glue.h"
 #include "maccess.h"
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#include "emumemory.h"
+#else
 #include "memory.h"
+#endif /* RETRO HACK */
 #include "custom.h"
 #include "newcpu.h"
 #include "cpu_prefetch.h"

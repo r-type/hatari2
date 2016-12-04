@@ -35,6 +35,7 @@ $(CPU_PREGEN)/cpuemu_31.c \
 $(CPU_PREGEN)/cpuemu_32.c \
 $(CPU_PREGEN)/cpuemu_33.c \
 $(CPU_PREGEN)/cpuemu_40.c \
+$(CPU_PREGEN)/cpuemu_50.c \
 $(CPU_PREGEN)/cpudefs.c \
 $(CPU_PREGEN)/cpustbl.c \
 $(CPU)/cpummu.c \

@@ -64,7 +64,9 @@
 */
 
 const char VIDEL_fileid[] = "Hatari videl.c : " __DATE__ " " __TIME__;
-
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#include <stdint.h>
+#endif /* RETRO HACK */
 #include "main.h"
 #include "configuration.h"
 #include "memorySnapShot.h"

@@ -17,7 +17,11 @@ const char Memory_fileid[] = "Hatari memory.c : " __DATE__ " " __TIME__;
 #include "sysdeps.h"
 #include "hatari-glue.h"
 #include "maccess.h"
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#include "emumemory.h"
+#else
 #include "memory.h"
+#endif /* RETRO HACK */
 
 #include "main.h"
 #include "tos.h"

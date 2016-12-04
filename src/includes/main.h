@@ -16,6 +16,10 @@
 #include <math.h>
 #include <time.h>
 
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#include <stdint.h>
+#endif /* RETRO HACK */
+
 #include <SDL_types.h>
 #include <stdbool.h>
 

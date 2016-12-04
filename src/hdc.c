@@ -23,7 +23,9 @@ const char HDC_fileid[] = "Hatari hdc.c : " __DATE__ " " __TIME__;
 #include "stMemory.h"
 #include "tos.h"
 #include "statusbar.h"
-
+#ifdef __LIBRETRO__	/* RETRO HACK */
+#include "SDL_endian.h"
+#endif	/* RETRO HACK */
 
 /*
   ACSI emulation: 

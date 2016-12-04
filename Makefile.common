@@ -92,6 +92,7 @@ $(FALCON)/videl.c
 
 SOURCES_C += $(DBG)/log.c \
 $(DBG)/debugui.c \
+$(DBG)/vars.c \
 $(DBG)/breakcond.c \
 $(DBG)/debugcpu.c \
 $(DBG)/debugInfo.c \
@@ -177,7 +178,8 @@ $(EMU)/wavFormat.c \
 $(EMU)/xbios.c \
 $(EMU)/ymFormat.c
 
-SOURCES_C += $(LIBRETRO_DIR)/libretro-sdk/libco/libco.c \
+# $(LIBRETRO_DIR)/libretro-sdk/libco/libco.c
+SOURCES_C += \
 				 $(LIBRETRO_DIR)/libretro.c \
 				 $(LIBRETRO_DIR)/hatari-mapper.c \
 				 $(LIBRETRO_DIR)/vkbd.c \

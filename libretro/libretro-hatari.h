@@ -14,12 +14,12 @@
 #include "configuration.h"
 
 extern const char SDLKeyToSTScanCode[512] ;
-
+/*
 #include <libco.h>
 
 extern cothread_t mainThread;
 extern cothread_t emuThread;
-
+*/
 extern char Key_Sate[512];
 extern char Key_Sate2[512];
 

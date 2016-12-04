@@ -148,7 +148,7 @@ else
 CPU_PREGEN = $(LIBRETRO_DIR)/uae-cpu-pregen
 endif
 
-LIBCOOBJ = $(LIBRETRO_DIR)/utils/libco
+#LIBCOOBJ = $(LIBRETRO_DIR)/utils/libco
 LIBUTILS = $(LIBRETRO_DIR)/utils
 
 include Makefile.common

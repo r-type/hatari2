@@ -24,7 +24,9 @@
 #include "stMemory.h"
 #include "str.h"
 #include "sysdeps.h"
-
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#include <inttypes.h>
+#endif	/* RETRO HACK */
 #if HAVE_MALLOC_H
 # include <malloc.h>
 #endif

@@ -278,7 +278,7 @@ static SDL_sem* pSemFreeBuf;       /* Semaphore to sync free space in InputBuffe
 static SDL_Thread *RS232Thread = NULL; /* Thread handle for reading incoming data */
 #else
 static HSDL_sem* pSemFreeBuf;       /* Semaphore to sync free space in InputBuffer_RS232 */
-+static HSDL_Thread *RS232Thread = NULL; /* Thread handle for reading incoming data */
+static HSDL_Thread *RS232Thread = NULL; /* Thread handle for reading incoming data */
 #endif /* RETRO HACK */
 
 /*-----------------------------------------------------------------------*/

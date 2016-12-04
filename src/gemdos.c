@@ -25,6 +25,11 @@ const char Gemdos_fileid[] = "Hatari gemdos.c : " __DATE__ " " __TIME__;
 
 #include <config.h>
 
+#ifdef __LIBRETRO__	/* RETRO HACK */
+//FIXME
+       #include <utime.h>
+#endif	/* RETRO HACK */
+
 #include <sys/stat.h>
 #if HAVE_STATVFS
 #include <sys/statvfs.h>

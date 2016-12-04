@@ -1,0 +1,194 @@
+CORE_DIR := .
+LIBRETRO_DIR = $(CORE_DIR)/libretro
+ZLIB_DIR = $(LIBRETRO_DIR)/utils/zlib
+
+NEWCPU ?= 1
+
+IPFSUPPORT ?= 0
+IPFDIR ?=
+ 
+ifeq ($(IPFSUPPORT), 1)
+CAPS_DIR = $(IPFDIR)
+CAPS_LIB = -L$(CAPS_DIR) -lcapsimage
+else
+CAPS_DIR =
+CAPS_LIB =
+endif
+
+ifeq ($(platform),)
+platform = unix
+ifeq ($(shell uname -a),)
+   platform = win
+else ifneq ($(findstring MINGW,$(shell uname -a)),)
+   platform = win
+else ifneq ($(findstring Darwin,$(shell uname -a)),)
+   platform = osx
+else ifneq ($(findstring win,$(shell uname -a)),)
+   platform = win
+endif
+endif
+
+EXTERNAL_ZLIB = 0
+
+
+ifeq ($(NEWCPU), 1)
+TARGET_NAME	:= nhatari
+else
+TARGET_NAME	:= hatari
+endif
+
+
+ifeq ($(platform), unix)
+   CC = gcc
+	TARGET := $(TARGET_NAME)_libretro.so
+   fpic := -fPIC
+   SHARED :=  -lz -lpthread -shared -Wl,--version-script=$(LIBRETRO_DIR)/link.T -Wl,--no-undefined
+   PLATFLAGS := -DLSB_FIRST -DALIGN_DWORD
+# emscripten
+else ifeq ($(platform), emscripten)
+   TARGET := $(TARGET_NAME)_libretro_emscripten.bc
+   CC = emcc
+   CFLAGS +=  -s USE_ZLIB=1 -DLSB_FIRST -DALIGN_DWORD^M
+   CXXFLAGS += -s USE_ZLIB=1 -DLSB_FIRST -DALIGN_DWORD
+else ifeq ($(platform), android)
+   CC = arm-linux-androideabi-gcc
+   AR = @arm-linux-androideabi-ar
+   LD = @arm-linux-androideabi-g++ 
+	TARGET := $(TARGET_NAME)_libretro.so
+   fpic := -fPIC
+   SHARED :=  -Wl,--fix-cortex-a8 -llog -lz -shared -Wl,--version-script=$(LIBRETRO_DIR)/link.T -Wl,--no-undefined
+   PLATFLAGS := -DAND -DLSB_FIRST -DALIGN_DWORD
+else ifeq ($(platform), osx)
+	TARGET := $(TARGET_NAME)_libretro.dylib
+   fpic := -fPIC
+   SHARED := -dynamiclib
+   PLATFLAGS := -DLSB_FIRST -DALIGN_DWORD
+else ifeq ($(platform), ios)
+	TARGET := $(TARGET_NAME)_libretro_ios.dylib
+	fpic := -fPIC
+	SHARED := -dynamiclib
+
+	ifeq ($(IOSSDK),)
+		IOSSDK := $(shell xcodebuild -version -sdk iphoneos Path)
+	endif
+
+	CC = clang -arch armv7 -isysroot $(IOSSDK)
+	CFLAGS += -DIOS -marm -DHAVE_POSIX_MEMALIGN=1 -w
+	OSXVER = `sw_vers -productVersion | cut -d. -f 2`
+	OSX_LT_MAVERICKS = `(( $(OSXVER) <= 9)) && echo "YES"`
+	ifeq ($(OSX_LT_MAVERICKS),"YES")
+		CC += -miphoneos-version-min=5.0
+		CFLAGS += -miphoneos-version-min=5.0
+	endif
+
+else ifeq ($(platform), wii)
+	TARGET := $(TARGET_NAME)_libretro_wii.a
+   CC = $(DEVKITPPC)/bin/powerpc-eabi-gcc$(EXE_EXT)
+   CXX = $(DEVKITPPC)/bin/powerpc-eabi-g++$(EXE_EXT)
+   AR = $(DEVKITPPC)/bin/powerpc-eabi-ar$(EXE_EXT)   
+   CFLAGS += -DSDL_BYTEORDER=SDL_BIG_ENDIAN -DMSB_FIRST -DBYTE_ORDER=BIG_ENDIAN  -DBYTE_ORDER=BIG_ENDIAN \
+	-DHAVE_MEMALIGN -DHAVE_ASPRINTF -I$(ZLIB_DIR) -I$(DEVKITPRO)/libogc/include \
+	-D__powerpc__ -D__POWERPC__ -DGEKKO -DHW_RVL -mrvl -mcpu=750 -meabi -mhard-float -D__ppc__
+   SHARED :=   -lm -lpthread -lc
+   PLATFLAGS :=  -DALIGN_DWORD
+   EXTERNAL_ZLIB = 1
+else ifeq ($(platform), ps3)
+	TARGET := $(TARGET_NAME)_libretro_ps3.a
+   CC = $(CELL_SDK)/host-win32/ppu/bin/ppu-lv2-gcc.exe
+   CXX = $(CELL_SDK)/host-win32/ppu/bin/ppu-lv2-g++.exe
+   AR = $(CELL_SDK)/host-win32/ppu/bin/ppu-lv2-ar.exe
+   SHARED :=   -lm -lpthread -lc
+   CFLAGS += -DSDL_BYTEORDER=SDL_BIG_ENDIAN -DMSB_FIRST -DBYTE_ORDER=BIG_ENDIAN  -DBYTE_ORDER=BIG_ENDIAN \
+	-D__CELLOS_LV2 -DHAVE_MEMALIGN -DHAVE_ASPRINTF -I$(ZLIB_DIR) 
+   PLATFLAGS :=  -DALIGN_DWORD 
+   EXTERNAL_ZLIB = 1
+else
+   #CC = i586-mingw32msvc-gcc
+   CC = x86_64-w64-mingw32-gcc
+   PLATFLAGS :=  -DLSB_FIRST -DALIGN_DWORD -DWIN32PORT -DWIN32
+	TARGET := $(TARGET_NAME)_libretro.dll
+   SHARED := -shared -static-libgcc -s -Wl,--version-script=$(LIBRETRO_DIR)/link.T -Wl,--no-undefined 
+endif
+
+ifeq ($(DEBUG), 1)
+   CFLAGS += -O0 -g
+else
+   CFLAGS += -O3
+endif
+
+CFLAGS += \
+	-std=gnu99 -funroll-loops  -fsigned-char -D__LIBRETRO__ \
+	-Wno-strict-prototypes -ffast-math -fomit-frame-pointer -fno-builtin -finline-functions
+
+ifneq ($(platform), emscripten)
+CFLAGS += -finline-functions -fno-strength-reduce
+endif
+
+CXXFLAGS  += $(CFLAGS)
+CPPFLAGS  += $(CFLAGS)
+
+EMU = $(CORE_DIR)/src
+
+
+ifeq ($(NEWCPU), 1)
+CFLAGS += -DNEW_WCPU=1
+CPU = $(EMU)/cpu
+else
+CPU = $(EMU)/uae-cpu
+endif
+
+FALCON = $(EMU)/falcon
+DBG = $(EMU)/debug
+FLP = $(EMU)
+GUI = $(LIBRETRO_DIR)/gui-retro
+
+ifeq ($(NEWCPU), 1)
+CPU_PREGEN = $(LIBRETRO_DIR)/new-cpu-pregen
+else
+CPU_PREGEN = $(LIBRETRO_DIR)/uae-cpu-pregen
+endif
+
+LIBCOOBJ = $(LIBRETRO_DIR)/utils/libco
+LIBUTILS = $(LIBRETRO_DIR)/utils
+
+include Makefile.common
+
+LINKFLAGS += -lm -lz
+
+ifeq ($(IPFSUPPORT), 1)
+INCFLAGS += -I$(CAPS_DIR)/include
+PLATFLAGS += -DHAVE_CAPSIMAGE=1
+LINKFLAGS += $(CAPS_LIB)
+endif
+
+OBJECTS := $(SOURCES_C:.c=.o)
+
+all: $(TARGET)
+
+ifeq ($(platform), wii)
+$(TARGET): $(OBJECTS) 
+	$(AR) rcs $@ $(OBJECTS) 
+else ifeq ($(platform), ps3)
+$(TARGET): $(OBJECTS) 
+	$(AR) rcs $@ $(OBJECTS) 
+
+else ifeq ($(platform), win)
+$(TARGET): $(OBJECTS)
+	$(CC) $(fpic) $(SHARED) $(INCLUDES) -o $@ $(OBJECTS)  $(LINKFLAGS)
+else ifeq ($(platform), android)
+$(TARGET): $(OBJECTS)
+	$(CC) $(fpic) $(SHARED) $(INCLUDES) -o $@ $(OBJECTS)  $(LINKFLAGS)
+else
+$(TARGET): $(OBJECTS)
+	$(CC) $(fpic) $(SHARED) $(INCLUDES) -o $@ $(OBJECTS)  $(LINKFLAGS) -lpthread
+
+endif
+
+%.o: %.c
+	$(CC) $(fpic) $(CFLAGS) $(PLATFLAGS) $(INCFLAGS) -c -o $@ $<
+
+clean:
+	rm -f $(OBJECTS) $(TARGET) 
+
+.PHONY: clean
+

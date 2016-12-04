@@ -1737,6 +1737,9 @@ static int do_specialties (void)
     return 0;
 }
 
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+extern int CPULOOP;
+#endif /* RETRO HACK */
 
 /* It's really sad to have two almost identical functions for this, but we
    do it all for performance... :( */
@@ -1847,6 +1850,9 @@ static void m68k_run_1 (void)
 	if (bDspEnabled) {
 	    DSP_Run( Cycles_GetCounter(CYCLES_COUNTER_CPU) * DSP_CPU_FREQ_RATIO);
 	}
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+        if(CPULOOP==0)break;
+#endif 	/* RETRO HACK */
     }
 }
 
@@ -1913,9 +1919,28 @@ static void m68k_run_2 (void)
 	if (bDspEnabled) {
 	    DSP_Run( Cycles_GetCounter(CYCLES_COUNTER_CPU) * DSP_CPU_FREQ_RATIO);
 	}
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+        if(CPULOOP==0)break;
+#endif 	/* RETRO HACK */
     }
 }
 
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+void RetroLoop()
+{
+       while(CPULOOP==1){
+
+         if(currprefs.cpu_compatible)
+          m68k_run_1();
+         else
+          m68k_run_2();
+
+       }
+
+       CPULOOP=1;
+       // TODO HANDLE SPCFLAG_BRK
+}
+#endif 	/* RETRO HACK */
 
 void m68k_go (int may_quit)
 {

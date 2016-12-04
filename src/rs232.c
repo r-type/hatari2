@@ -272,11 +272,14 @@ static void RS232_CloseCOMPort(void)
 	Dprintf(("Closed RS232 files.\n"));
 }
 
-
+#ifndef __LIBRETRO__ /* RETRO HACK */
 /* thread stuff */
 static SDL_sem* pSemFreeBuf;       /* Semaphore to sync free space in InputBuffer_RS232 */
 static SDL_Thread *RS232Thread = NULL; /* Thread handle for reading incoming data */
-
+#else
+static HSDL_sem* pSemFreeBuf;       /* Semaphore to sync free space in InputBuffer_RS232 */
++static HSDL_Thread *RS232Thread = NULL; /* Thread handle for reading incoming data */
+#endif /* RETRO HACK */
 
 /*-----------------------------------------------------------------------*/
 /**
@@ -289,7 +292,11 @@ static void RS232_AddBytesToInputBuffer(unsigned char *pBytes, int nBytes)
 	/* Copy bytes into input buffer */
 	for (i=0; i<nBytes; i++)
 	{
+#ifndef __LIBRETRO__ /* RETRO HACK */
 		SDL_SemWait(pSemFreeBuf);    /* Wait for free space in buffer */
+#else
+		HSDL_SemWait(pSemFreeBuf);    /* Wait for free space in buffer */
+#endif /* RETRO HACK */
 		InputBuffer_RS232[InputBuffer_Tail] = *pBytes++;
 		InputBuffer_Tail = (InputBuffer_Tail+1) % MAX_RS232INPUT_BUFFER;
 	}
@@ -321,20 +328,32 @@ static int RS232_ThreadFunc(void *pData)
 				MFP_InputOnChannel ( MFP_INT_RCV_BUF_FULL , 0 );
 				Dprintf(("RS232: Read character $%x\n", iInChar));
 				/* Sleep for a while */
+#ifndef __LIBRETRO__ /* RETRO HACK */
 				SDL_Delay(2);
+#else
+				HSDL_Delay(20);
+#endif /* RETRO HACK */
 			}
 			else
 			{
 				/*Dprintf(("RS232: Reached end of input file!\n"));*/
 				/* potential data race on hComIn modification */
 				clearerr(hComIn);
+#ifndef __LIBRETRO__ /* RETRO HACK */
 				SDL_Delay(20);
+#else
+				HSDL_Delay(20);
+#endif /* RETRO HACK */
 			}
 		}
 		else
 		{
 			/* No RS-232 connection, sleep for 0.2s */
+#ifndef __LIBRETRO__ /* RETRO HACK */
 			SDL_Delay(200);
+#else
+			HSDL_Delay(200);
+#endif /* RETRO HACK */
 		}
 	}
 
@@ -364,7 +383,12 @@ void RS232_Init(void)
 	{
 		/* Create semaphore */
 		if (pSemFreeBuf == NULL)
+#ifndef __LIBRETRO__ /* RETRO HACK */
 			pSemFreeBuf = SDL_CreateSemaphore(MAX_RS232INPUT_BUFFER);
+#else
+			pSemFreeBuf = HSDL_CreateSemaphore(MAX_RS232INPUT_BUFFER);
+#endif /* RETRO HACK */
+
 		if (pSemFreeBuf == NULL)
 		{
 			RS232_CloseCOMPort();
@@ -376,11 +400,15 @@ void RS232_Init(void)
 		if (!RS232Thread)
 		{
 			bQuitThread = false;
+#ifndef __LIBRETRO__ /* RETRO HACK */
 #if WITH_SDL2
 			RS232Thread = SDL_CreateThread(RS232_ThreadFunc, "rs232", NULL);
 #else
 			RS232Thread = SDL_CreateThread(RS232_ThreadFunc, NULL);
 #endif
+#else
+			RS232Thread = HSDL_CreateThread(RS232_ThreadFunc, NULL);
+#endif /* RETRO HACK */
 			Dprintf(("RS232 thread has been created.\n"));
 		}
 	}
@@ -405,7 +433,11 @@ void RS232_UnInit(void)
 		Dprintf(("Killing RS232 thread...\n"));
 		bQuitThread = true;
 #if !WITH_SDL2
+#ifndef __LIBRETRO__ /* RETRO HACK */
 		SDL_KillThread(RS232Thread);
+#else
+		HSDL_KillThread(RS232Thread);
+#endif /* RETRO HACK */
 #endif
 		RS232Thread = NULL;
 	}
@@ -413,7 +445,11 @@ void RS232_UnInit(void)
 
 	if (pSemFreeBuf)
 	{
+#ifndef __LIBRETRO__ /* RETRO HACK */
 		SDL_DestroySemaphore(pSemFreeBuf);
+#else
+		HSDL_DestroySemaphore(pSemFreeBuf);
+#endif /* RETRO HACK */
 		pSemFreeBuf = NULL;
 	}
 }
@@ -652,7 +688,11 @@ static bool RS232_ReadBytes(Uint8 *pBytes, int nBytes)
 		{
 			*pBytes++ = InputBuffer_RS232[InputBuffer_Head];
 			InputBuffer_Head = (InputBuffer_Head+1) % MAX_RS232INPUT_BUFFER;
+#ifndef __LIBRETRO__ /* RETRO HACK */
 			SDL_SemPost(pSemFreeBuf);    /* Signal free space */
+#else
+			HSDL_SemPost(pSemFreeBuf);    /* Signal free space */
+#endif  /* RETRO HACK */
 		}
 		return true;
 	}

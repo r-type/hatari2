@@ -315,6 +315,7 @@ void Main_WaitOnVbl(void)
 #ifdef __LIBRETRO__	/* RETRO HACK */
 if(pauseg==1)pause_select();
 //co_switch(mainThread);
+CPULOOP=0;
 #endif	/* RETRO HACK */
 	nVBLCount++;
 	if (nRunVBLs &&	nVBLCount >= nRunVBLs)
@@ -969,6 +970,9 @@ int main(int argc, char *argv[])
 
 	/* Run emulation */
 	Main_UnPauseEmulation();
+
+#if 0 /* RETRO HACK */
+
 	M68000_Start();                 /* Start emulation */
 
 	if (bRecordingAvi)
@@ -982,6 +986,28 @@ int main(int argc, char *argv[])
 	Main_UnInit();
 #ifdef __LIBRETRO__	/* RETRO HACK */
 pauseg=-1;
-#endif	/* RETRO HACK */
+#endif /* RETRO HACK */
+#endif /* RETRO HACK */
+
 	return nQuitValue;
 }
+#ifdef __LIBRETRO__ /* RETRO HACK */
+void Quit_Hatari(){
+
+       if (bRecordingAvi)
+       {
+               /* cleanly close the avi file */
+               Statusbar_AddMessage("Finishing AVI file...", 100);
+               Statusbar_Update(sdlscrn, true);
+               Avi_StopRecording();
+       }
+       /* Un-init emulation system */
+       Main_UnInit();
+
+       pauseg=-1;
+       //return nQuitValue;
+
+
+}
+#endif /* RETRO HACK */
+

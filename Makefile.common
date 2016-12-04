@@ -178,7 +178,10 @@ $(EMU)/wavFormat.c \
 $(EMU)/xbios.c \
 $(EMU)/ymFormat.c
 
-# $(LIBRETRO_DIR)/libretro-sdk/libco/libco.c
+ifeq ($(HAVE_LIBCO), 1)
+SOURCES_C +=  $(LIBRETRO_DIR)/libco/libco.c
+endif
+
 SOURCES_C += \
 				 $(LIBRETRO_DIR)/libretro.c \
 				 $(LIBRETRO_DIR)/hatari-mapper.c \

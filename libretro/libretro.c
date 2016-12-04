@@ -3,12 +3,14 @@
 #include "libretro-hatari.h"
 
 #include "STkeymap.h"
-/*
+
+#if defined(HAVE_LIBCO) 
 cothread_t mainThread;
 cothread_t emuThread;
-*/
+#else
 extern void RetroLoop();
 int CPULOOP=1;
+#endif
 
 int CROP_WIDTH;
 int CROP_HEIGHT;
@@ -89,7 +91,7 @@ static void update_variables(void)
 static void retro_wrap_emulator()
 {
    pre_main(RPATH);
-/*
+#if defined(HAVE_LIBCO)
    pauseg=-1;
 
    environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, 0); 
@@ -103,7 +105,7 @@ static void retro_wrap_emulator()
       LOGI("Running a dead emulator.");
       co_switch(mainThread);
    }
-*/
+#endif
 }
 
 void Emu_init()
@@ -119,14 +121,15 @@ void Emu_init()
 
    memset(Key_Sate,0,512);
    memset(Key_Sate2,0,512);
-/*
+#if defined(HAVE_LIBCO)
    if(!emuThread && !mainThread)
    {
       mainThread = co_active();
       emuThread = co_create(65536*sizeof(void*), retro_wrap_emulator);
    }
-*/
+#else
    retro_wrap_emulator();
+#endif
 }
 
 void Emu_uninit()
@@ -209,7 +212,9 @@ struct retro_input_descriptor inputDescriptors[] = {
 		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "L3" }
 	};
 	environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, &inputDescriptors);
-   //Emu_init();
+#if defined(HAVE_LIBCO)
+Emu_init();
+#endif
    texture_init();
 }
 
@@ -217,14 +222,15 @@ void retro_deinit(void)
 {	 
    Emu_uninit(); 
 
-   Quit_Hatari();
-/*
+#if defined(HAVE_LIBCO)
    if(emuThread)
    {	 
       co_delete(emuThread);
       emuThread = 0;
    }
-*/
+#else
+   Quit_Hatari();
+#endif
    LOGI("Retro DeInit\n");
 }
 
@@ -289,8 +295,9 @@ void retro_run(void)
    {
       update_input();
 
+#if !defined(HAVE_LIBCO)
       RetroLoop();
-
+#endif
       if(SND==1)
       {
          int16_t *p=(int16_t*)SNDBUF;
@@ -306,8 +313,9 @@ void retro_run(void)
       height = retroh;
    }
    video_cb(bmp, width, height, retrow<< 1);
-
-   //co_switch(emuThread);
+#if defined(HAVE_LIBCO)
+   co_switch(emuThread);
+#endif
 }
 
 bool retro_load_game(const struct retro_game_info *info)
@@ -319,10 +327,11 @@ bool retro_load_game(const struct retro_game_info *info)
    full_path = info->path;
 
    strcpy(RPATH,full_path);
-
-   //co_switch(emuThread);
+#if defined(HAVE_LIBCO)
+   co_switch(emuThread);
+#else
    Emu_init();
-
+#endif
    return true;
 }
 

@@ -24,7 +24,7 @@ extern void Main_HandleMouseMotion(void);
 extern void Main_UnInit(void);
 extern int  hmain(int argc, char *argv[]);
 extern int Reset_Cold(void);
-extern void gui_run();
+
 //TIME
 #ifdef __CELLOS_LV2__
 #include "sys/sys_time.h"
@@ -154,7 +154,9 @@ void gui_poll_events(void)
       frame++; 
       LastFPSTime = Ktime;	
       //FIXME NOLIBCO
-      //co_switch(mainThread);
+#ifdef HAVE_LIBCO
+      co_switch(mainThread);
+#endif
    }
 }
 
@@ -283,8 +285,10 @@ void texture_init(void)
 void enter_gui(void)
 {
    save_bkg();
-
-   //Dialog_DoProperty();
+#ifdef HAVE_LIBCO
+   Dialog_DoProperty();
+//FIXME NOLIBCO
+#endif
    pauseg=0;
 }
 

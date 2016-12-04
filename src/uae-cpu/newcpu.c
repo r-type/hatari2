@@ -1737,7 +1737,7 @@ static int do_specialties (void)
     return 0;
 }
 
-#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#if defined(__LIBRETRO__) && !defined(HAVE_LIBCO) 	/* RETRO HACK */
 extern int CPULOOP;
 #endif /* RETRO HACK */
 
@@ -1850,7 +1850,7 @@ static void m68k_run_1 (void)
 	if (bDspEnabled) {
 	    DSP_Run( Cycles_GetCounter(CYCLES_COUNTER_CPU) * DSP_CPU_FREQ_RATIO);
 	}
-#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#if defined(__LIBRETRO__) && !defined(HAVE_LIBCO) 	/* RETRO HACK */
         if(CPULOOP==0)break;
 #endif 	/* RETRO HACK */
     }
@@ -1919,13 +1919,15 @@ static void m68k_run_2 (void)
 	if (bDspEnabled) {
 	    DSP_Run( Cycles_GetCounter(CYCLES_COUNTER_CPU) * DSP_CPU_FREQ_RATIO);
 	}
-#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#if defined(__LIBRETRO__) && !defined(HAVE_LIBCO) 	/* RETRO HACK */
         if(CPULOOP==0)break;
 #endif 	/* RETRO HACK */
+
     }
 }
 
-#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#if defined(__LIBRETRO__) && !defined(HAVE_LIBCO) 	/* RETRO HACK */
+
 void RetroLoop()
 {
        while(CPULOOP==1){

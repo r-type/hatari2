@@ -314,8 +314,11 @@ void Main_WaitOnVbl(void)
 	Sint64 nDelay;
 #ifdef __LIBRETRO__	/* RETRO HACK */
 if(pauseg==1)pause_select();
-//co_switch(mainThread);
+#ifdef HAVE_LIBCO
+co_switch(mainThread);
+#else
 CPULOOP=0;
+#endif
 #endif	/* RETRO HACK */
 	nVBLCount++;
 	if (nRunVBLs &&	nVBLCount >= nRunVBLs)
@@ -970,8 +973,7 @@ int main(int argc, char *argv[])
 
 	/* Run emulation */
 	Main_UnPauseEmulation();
-
-#if 0 /* RETRO HACK */
+#ifdef HAVE_LIBCO
 
 	M68000_Start();                 /* Start emulation */
 
@@ -987,11 +989,12 @@ int main(int argc, char *argv[])
 #ifdef __LIBRETRO__	/* RETRO HACK */
 pauseg=-1;
 #endif /* RETRO HACK */
+
 #endif /* RETRO HACK */
 
 	return nQuitValue;
 }
-#ifdef __LIBRETRO__ /* RETRO HACK */
+#if defined(__LIBRETRO__) && !defined(HAVE_LIBCO) /* RETRO HACK */
 void Quit_Hatari(){
 
        if (bRecordingAvi)

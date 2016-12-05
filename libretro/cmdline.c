@@ -42,7 +42,19 @@ int pre_main(const char *argv)
    if(Only1Arg)
    {
       Add_Option("hatari");
-      Add_Option("--disk-a");
+      //retroup: if arg extension is stc load a config file, else load disk-a
+      //chose "stc" instead of the default "cfg" to enable unique file association.
+      const char * suffix = ".stc";
+      size_t str_len = strlen(RPATH);
+      size_t suffix_len = strlen(suffix);
+      if (!strncmp( RPATH + str_len - suffix_len, suffix, suffix_len ))
+      {
+         Add_Option("-c");
+      }
+      else
+      {
+         Add_Option("--disk-a");
+      }
       Add_Option(RPATH/*ARGUV[0]*/);
    }
    else

@@ -46,7 +46,7 @@ int pre_main(const char *argv)
       //backport retroup cfg load
       if (strlen(RPATH) >= strlen("cfg")){
 	if(!strcasecmp(&RPATH[strlen(RPATH)-strlen("cfg")], "cfg"))
-			Add_Option("--cfg");
+			Add_Option("-c");
       }
       else Add_Option("--disk-a");
 

@@ -131,7 +131,7 @@ endif
 
 CFLAGS += \
 	-std=gnu99 -funroll-loops  -fsigned-char -D__LIBRETRO__ \
-	-Wno-strict-prototypes -ffast-math -fomit-frame-pointer -fno-builtin -finline-functions
+	-Wno-strict-prototypes -ffast-math -fomit-frame-pointer -fno-builtin 
 
 ifneq ($(platform), emscripten)
 CFLAGS += -finline-functions -fno-strength-reduce

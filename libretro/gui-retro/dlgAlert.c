@@ -137,8 +137,7 @@ static int DlgAlert_ShowDlg(const char *text)
 	if(pauseg==0){
 		//HACK fix crash if alert dialog appear before pause was set to ON or before the first co_switch in main thread. 
 #ifndef HAVE_LIBCO
-#warning tototo
-return;
+return 0;
 #endif
 		printf("set pause on!\n");
 		pauseg=1;

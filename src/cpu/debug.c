@@ -19,9 +19,10 @@
 
 #include "options_cpu.h"
 //#include "uae.h"
-#ifdef __LIBRETRO__  /* RETRO HACK */
+/* RETRO HACK */
 #include "emumemory.h"
-#endif /* RETRO HACK */
+//#include "memory.h"
+/* RETRO HACK */
 #include "custom.h"
 #include "newcpu.h"
 #include "cpu_prefetch.h"

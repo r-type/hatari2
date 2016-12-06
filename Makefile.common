@@ -48,7 +48,8 @@ $(CPU)/memory.c \
 $(CPU)/newcpu_common.c \
 $(CPU)/readcpu.c \
 $(CPU)/fpp.c \
-$(CPU_PREGEN)/newcpu.c
+$(CPU)/writelog.c \
+$(CPU)/newcpu.c
 
 else
 

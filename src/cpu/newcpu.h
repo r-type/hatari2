@@ -15,7 +15,13 @@
 #include "compat.h"
 #include "maccess.h"
 #include "events.h"
+
+#ifdef __LIBRETRO__ 	/* RETRO HACK */
+#include "emumemory.h"
+#else
 #include "memory.h"
+#endif /* RETRO HACK */
+//#include "memory.h"
 #include "custom.h"
 
 /* Possible exceptions sources for M68000_Exception() and Exception() */

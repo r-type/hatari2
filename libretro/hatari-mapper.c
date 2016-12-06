@@ -93,7 +93,7 @@ void retro_set_input_poll(retro_input_poll_t cb)
    input_poll_cb = cb;
 }
 
-size_t SDL_strlcpy(char *dest, const char *source, size_t size)
+size_t HSDL_strlcpy(char *dest, const char *source, size_t size)
 {
    size_t src_size = 0;
    size_t n = size;

@@ -806,10 +806,16 @@ void Configuration_SetDefault(void)
 	else
 		strcpy(sConfigFileName, "hatari.cfg");
 
-#if defined(__AMIGAOS4__)
+#if defined(__AMIGAOS4__) 
 	/* Fix default path names on Amiga OS */
 	sprintf(ConfigureParams.Rom.szTosImageFileName, "%stos.img", Paths_GetDataDir());
 #endif
+
+#if defined(__LIBRETRO__) && defined(__EMSCRIPTEN__) 	/* RETRO HACK */
+	/* Fix default path names on emscripten libretro */
+	sprintf(ConfigureParams.Rom.szTosImageFileName, "/home/web_user/retroarch/userdata/content/tos.img");
+#endif 	/* RETRO HACK */
+
 }
 
 

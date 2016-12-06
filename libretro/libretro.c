@@ -250,7 +250,7 @@ void retro_get_system_info(struct retro_system_info *info)
    memset(info, 0, sizeof(*info));
    info->library_name     = "Hatari";
    info->library_version  = "2.0";
-   info->valid_extensions = "ST|MSA|ZIP|STX|DIM|IPF";
+   info->valid_extensions = "ST|MSA|ZIP|STX|DIM|IPF|CFG";
    info->need_fullpath    = true;
    info->block_extract = true;
 

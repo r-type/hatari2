@@ -31,9 +31,15 @@ endif
 
 EXTERNAL_ZLIB = 0
 
+ifeq ($(platform), emscripten)
+NEWCPU = 0
+HAVE_LIBCO = 0
+endif
 
 ifeq ($(NEWCPU), 1)
 TARGET_NAME	:= nhatari
+# nolibco only for old cpu
+HAVE_LIBCO = 1
 else
 TARGET_NAME	:= hatari
 endif
@@ -48,10 +54,11 @@ ifeq ($(platform), unix)
 # emscripten
 else ifeq ($(platform), emscripten)
    HAVE_LIBCO = 0
+   NEWCPU=0
    TARGET := $(TARGET_NAME)_libretro_emscripten.bc
    CC = emcc
-   CFLAGS +=  -s USE_ZLIB=1 -DLSB_FIRST -DALIGN_DWORD^M
-   CXXFLAGS += -s USE_ZLIB=1 -DLSB_FIRST -DALIGN_DWORD -D
+   CFLAGS +=  -s USE_ZLIB=1 -DLSB_FIRST -DALIGN_DWORD
+   CXXFLAGS += -s USE_ZLIB=1 -DLSB_FIRST -DALIGN_DWORD 
 else ifeq ($(platform), android)
    CC = arm-linux-androideabi-gcc
    AR = @arm-linux-androideabi-ar

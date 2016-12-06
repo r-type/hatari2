@@ -15,7 +15,7 @@
 #endif
 
 #if !HAVE_LIBC_STRLCPY
-#define strlcpy(dst, src, len) SDL_strlcpy(dst, src, len)
+#define strlcpy(dst, src, len) HSDL_strlcpy(dst, src, len)
 #endif
 
 /* Define this only for an old Linux system which does not store

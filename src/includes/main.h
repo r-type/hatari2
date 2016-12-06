@@ -18,6 +18,7 @@
 
 #ifdef __LIBRETRO__ 	/* RETRO HACK */
 #include <stdint.h>
+extern size_t HSDL_strlcpy(char *dest, const char *source, size_t size);
 #endif /* RETRO HACK */
 
 #include <SDL_types.h>

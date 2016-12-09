@@ -852,7 +852,9 @@ static void Main_LoadInitialConfig(void)
 	if (psGlobalConfig)
 	{
 #ifdef __LIBRETRO__	/* RETRO HACK */
-snprintf(psGlobalConfig, FILENAME_MAX, "%s%chatari.cfg",RETRO_DIR, PATHSEP);
+//retroup: load default cfg from system dir
+extern const char *retro_system_directory;
+snprintf(psGlobalConfig, FILENAME_MAX, "%s%chatari.cfg",retro_system_directory, PATHSEP);
 printf("RetroConf:'%s'\n",psGlobalConfig);
 #else
 #if defined(__AMIGAOS4__)

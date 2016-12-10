@@ -76,7 +76,7 @@ Uint8 type;
 #define SDL_NumJoysticks() 0
 #define SDL_JoystickOpen(i) NULL
 #define SDL_JoystickName(i) "RetroWrapper"
-#define SDL_JoystickClose
+#define SDL_JoystickClose(a)
 #define SDL_JoystickGetAxis(...) 0
 #define SDL_JoystickGetButton(...) 0
 #define SDL_JoystickNumAxes(...) 0

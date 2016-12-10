@@ -51,7 +51,7 @@ static int pauseon=0;
 	if(pauseg==0){
 		//HACK fix crash if alert dialog appear before pause was set to ON or before the first co_switch in main thread. 
 #ifndef HAVE_LIBCO
-#warning tototo
+//FIXME no gui without libco
 return;
 #endif
 		printf("set pause on!\n");

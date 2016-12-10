@@ -7,7 +7,8 @@ HAVE_LIBCO ?= 1
 
 IPFSUPPORT ?= 0
 IPFDIR ?=
- 
+CAPSIMAGE_VERSION ?= 5
+
 ifeq ($(IPFSUPPORT), 1)
 CAPS_DIR = $(IPFDIR)
 CAPS_LIB = -L$(CAPS_DIR) -lcapsimage
@@ -38,8 +39,6 @@ endif
 
 ifeq ($(NEWCPU), 1)
 TARGET_NAME	:= nhatari
-# nolibco only for old cpu
-HAVE_LIBCO = 1
 else
 TARGET_NAME	:= hatari
 endif
@@ -173,7 +172,7 @@ LINKFLAGS += -lm -lz
 
 ifeq ($(IPFSUPPORT), 1)
 INCFLAGS += -I$(CAPS_DIR)/include
-PLATFLAGS += -DHAVE_CAPSIMAGE=1
+PLATFLAGS += -DHAVE_CAPSIMAGE=1 -DCAPSIMAGE_VERSION=$(CAPSIMAGE_VERSION)
 LINKFLAGS += $(CAPS_LIB)
 endif
 

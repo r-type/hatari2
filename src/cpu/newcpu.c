@@ -56,6 +56,26 @@
 #include "debugcpu.h"
 #include "stMemory.h"
 
+#if defined(__LIBRETRO__) && !defined(HAVE_LIBCO) 	/* RETRO HACK */
+
+extern int CPULOOP;
+
+#define RETRO_BREAK_LOOP  if(CPULOOP==0)return
+#define RETRO_STATIC static
+#undef TRY
+#undef CATCH
+#undef ENDTRY
+#define TRY(a) 
+#define CATCH(b) if(0)
+#define ENDTRY 
+
+#else
+
+#define RETRO_BREAK_LOOP 
+#define RETRO_STATIC
+
+#endif /* RETRO HACK */
+
 
 #ifdef JIT
 #include "jit/compemu.h"
@@ -4589,8 +4609,8 @@ do it all for performance... :(
 This version emulates 68000's prefetch "cache" */
 static void m68k_run_1 (void)
 {
-	struct regstruct *r = &regs;
-	bool exit = false;
+RETRO_STATIC	struct regstruct *r = &regs;
+RETRO_STATIC	bool exit = false;
 
 	Log_Printf(LOG_DEBUG, "m68k_run_1\n");
 
@@ -4659,6 +4679,7 @@ static void m68k_run_1 (void)
 				regs.ipl = regs.ipl_pin;
 				if (!currprefs.cpu_compatible || (currprefs.cpu_cycle_exact && currprefs.cpu_model <= 68010))
 					exit = true;
+RETRO_BREAK_LOOP;
 			}
 		} CATCH (prb) {
 			bus_error();
@@ -4685,9 +4706,9 @@ static void m68k_run_1_ce (void)
 
 static void m68k_run_1_ce (void)
 {
-	struct regstruct *r = &regs;
-	bool first = true;
-	bool exit = false;
+RETRO_STATIC	struct regstruct *r = &regs;
+RETRO_STATIC	bool first = true;
+RETRO_STATIC	bool exit = false;
 
 	Log_Printf(LOG_DEBUG, "m68k_run_1_ce\n");
 
@@ -4811,6 +4832,7 @@ cont:
 
 				if (!currprefs.cpu_cycle_exact || currprefs.cpu_model > 68010)
 					exit = true;
+RETRO_BREAK_LOOP;
 			}
 		} CATCH (prb) {
 			bus_error();
@@ -5214,6 +5236,7 @@ static void m68k_run_jit(void)
 				return;
 			}
 		}
+RETRO_BREAK_LOOP;
 	}
 }
 #endif /* JIT */
@@ -5283,8 +5306,8 @@ void cpu_halt (int id)
 /* MMU 68060  */
 static void m68k_run_mmu060 (void)
 {
-	struct flag_struct f;
-	int halt = 0;
+RETRO_STATIC	struct flag_struct f;
+RETRO_STATIC	int halt = 0;
 
 #ifdef WINUAE_FOR_HATARI
 	Log_Printf(LOG_DEBUG,  "m68k_run_mmu060\n");
@@ -5344,6 +5367,7 @@ static void m68k_run_mmu060 (void)
 //					DSP_Run ( DSP_CPU_FREQ_RATIO * ( CyclesGlobalClockCounter - DSP_CyclesGlobalClockCounter ) );
 				}
 #endif
+RETRO_BREAK_LOOP;
 			}
 		} CATCH (prb) {
 
@@ -5377,8 +5401,8 @@ static void m68k_run_mmu060 (void)
 /* Aranym MMU 68040  */
 static void m68k_run_mmu040 (void)
 {
-	struct flag_struct f;
-	int halt = 0;
+RETRO_STATIC	struct flag_struct f;
+RETRO_STATIC	int halt = 0;
 
 #ifdef WINUAE_FOR_HATARI
 	Log_Printf(LOG_DEBUG,  "m68k_run_mmu040\n");
@@ -5443,6 +5467,7 @@ static void m68k_run_mmu040 (void)
 //					DSP_Run ( DSP_CPU_FREQ_RATIO * ( CyclesGlobalClockCounter - DSP_CyclesGlobalClockCounter ) );
 				}
 #endif
+RETRO_BREAK_LOOP;
 			}
 		} CATCH (prb) {
 
@@ -5475,8 +5500,8 @@ static void m68k_run_mmu040 (void)
 // Previous MMU 68030
 static void m68k_run_mmu030 (void)
 {
-	struct flag_struct f;
-	int halt = 0;
+RETRO_STATIC	struct flag_struct f;
+RETRO_STATIC	int halt = 0;
 
 #ifdef WINUAE_FOR_HATARI
 	Log_Printf(LOG_DEBUG,  "m68k_run_mmu030\n");
@@ -5587,6 +5612,7 @@ insretry:
 //					DSP_Run ( DSP_CPU_FREQ_RATIO * ( CyclesGlobalClockCounter - DSP_CyclesGlobalClockCounter ) );
 				}
 #endif
+RETRO_BREAK_LOOP;
 			}
 		} CATCH (prb) {
 
@@ -5621,8 +5647,8 @@ insretry:
 
 static void m68k_run_3ce (void)
 {
-	struct regstruct *r = &regs;
-	bool exit = false;
+RETRO_STATIC	struct regstruct *r = &regs;
+RETRO_STATIC	bool exit = false;
 
 	Log_Printf(LOG_DEBUG, "m68k_run_3ce\n");
 
@@ -5676,6 +5702,7 @@ static void m68k_run_3ce (void)
 //					DSP_Run ( DSP_CPU_FREQ_RATIO * ( CyclesGlobalClockCounter - DSP_CyclesGlobalClockCounter ) );
 				}
 #endif
+RETRO_BREAK_LOOP;
 			}
 		} CATCH(prb) {
 			bus_error();
@@ -5691,9 +5718,9 @@ static void m68k_run_3ce (void)
 
 static void m68k_run_3p(void)
 {
-	struct regstruct *r = &regs;
-	bool exit = false;
-	int cycles;
+RETRO_STATIC	struct regstruct *r = &regs;
+RETRO_STATIC	bool exit = false;
+RETRO_STATIC	int cycles;
 
 	Log_Printf(LOG_DEBUG, "m68k_run_3p\n");
 
@@ -5755,6 +5782,7 @@ static void m68k_run_3p(void)
 //					DSP_Run ( DSP_CPU_FREQ_RATIO * ( CyclesGlobalClockCounter - DSP_CyclesGlobalClockCounter ) );
 				}
 #endif
+RETRO_BREAK_LOOP;
 			}
 		} CATCH(prb) {
 			bus_error();
@@ -5771,9 +5799,9 @@ static void m68k_run_3p(void)
 STATIC_INLINE struct cache030 *getcache030 (struct cache030 *cp, uaecptr addr, uae_u32 *tagp, int *lwsp);
 static void m68k_run_2ce (void)
 {
-	struct regstruct *r = &regs;
-	bool exit = false;
-	bool first = true;
+RETRO_STATIC	struct regstruct *r = &regs;
+RETRO_STATIC	bool exit = false;
+RETRO_STATIC	bool first = true;
 
 	Log_Printf(LOG_DEBUG, "m68k_run_2ce\n");
 
@@ -5944,7 +5972,7 @@ cont:
 #endif
 
 				regs.ipl = regs.ipl_pin;
-
+RETRO_BREAK_LOOP;
 			}
 		} CATCH(prb) {
 			bus_error();
@@ -5963,9 +5991,9 @@ cont:
 // full prefetch 020 (more compatible)
 static void m68k_run_2p (void)
 {
-	struct regstruct *r = &regs;
-	bool exit = false;
-	bool first = true;
+RETRO_STATIC	struct regstruct *r = &regs;
+RETRO_STATIC	bool exit = false;
+RETRO_STATIC	bool first = true;
 
 	Log_Printf(LOG_DEBUG, "m68k_run_2p\n");
 
@@ -6114,6 +6142,7 @@ cont:
 #endif
 
 				ipl_fetch ();
+RETRO_BREAK_LOOP;
 			}
 		} CATCH(prb) {
 			bus_error();
@@ -6131,8 +6160,8 @@ cont:
 #ifdef WITH_THREADED_CPU
 static void *cpu_thread_run_2(void *v)
 {
-	bool exit = false;
-	struct regstruct *r = &regs;
+RETRO_STATIC	bool exit = false;
+RETRO_STATIC	struct regstruct *r = &regs;
 
 	cpu_thread_active = 1;
 	while (!exit) {
@@ -6149,6 +6178,7 @@ static void *cpu_thread_run_2(void *v)
 					if (do_specialties_thread())
 						exit = true;
 				}
+RETRO_BREAK_LOOP;
 			}
 		} CATCH(prb)
 		{
@@ -6174,8 +6204,8 @@ static void m68k_run_2 (void)
 	}
 #endif
 
-	struct regstruct *r = &regs;
-	bool exit = false;
+RETRO_STATIC	struct regstruct *r = &regs;
+RETRO_STATIC	bool exit = false;
 
 	Log_Printf(LOG_DEBUG, "m68k_run_2\n");
 
@@ -6234,6 +6264,7 @@ static void m68k_run_2 (void)
 //					DSP_Run ( DSP_CPU_FREQ_RATIO * ( CyclesGlobalClockCounter - DSP_CyclesGlobalClockCounter ) );
 				}
 #endif
+RETRO_BREAK_LOOP;
 			}
 		} CATCH(prb) {
 			bus_error();
@@ -6300,6 +6331,85 @@ bool is_keyboardreset(void)
 {
 	return  cpu_keyboardreset;
 }
+
+#if defined(__LIBRETRO__) && !defined(HAVE_LIBCO) 	/* RETRO HACK */
+static int unefois=0;
+
+void RetroLoop(){
+
+if(unefois==0){
+	reset_frame_rate_hack ();
+	update_68k_cycles ();
+	set_cpu_tracer (false);
+
+	cpu_prefs_changed_flag = 0;
+}
+        while(CPULOOP==1){
+
+		void (*run_func)(void);
+
+#ifdef WINUAE_FOR_HATARI
+		/* Exit hatari ? */
+		if (bQuitProgram == true)
+			break;
+#endif
+if(unefois==0){
+		cputrace.state = -1;
+
+		set_cpu_tracer (false);
+
+		/* [NP] : in Hatari, build_cpufunctbl() is called directly from check_prefs_changed_cpu2() */
+		/* so we just need to set PC here */
+		if (regs.spcflags & SPCFLAG_MODE_CHANGE) {
+			if (cpu_prefs_changed_flag & 1) {
+printf ( "cpu change %d\n" , cpu_prefs_changed_flag );
+				uaecptr pc = m68k_getpc();
+				m68k_setpc_normal(pc);
+				fill_prefetch();
+			}
+			cpu_prefs_changed_flag = 0;
+		}
+
+
+		set_x_funcs();
+
+		unset_special(SPCFLAG_MODE_CHANGE);
+
+		if (regs.halted) {
+			cpu_halt (regs.halted);
+			if (regs.halted < 0) {
+				haltloop();
+				continue;
+			}
+		}
+unefois++;
+}
+
+			run_func = currprefs.cpu_cycle_exact && currprefs.cpu_model <= 68010 ? m68k_run_1_ce :
+				currprefs.cpu_compatible && currprefs.cpu_model <= 68010 ? m68k_run_1 :
+#ifdef JIT
+				currprefs.cpu_model >= 68020 && currprefs.cachesize ? m68k_run_jit :
+#endif
+				currprefs.cpu_model == 68030 && currprefs.mmu_model ? m68k_run_mmu030 :
+				currprefs.cpu_model == 68040 && currprefs.mmu_model ? m68k_run_mmu040 :
+				currprefs.cpu_model == 68060 && currprefs.mmu_model ? m68k_run_mmu060 :
+
+				currprefs.cpu_model >= 68040 && currprefs.cpu_cycle_exact ? m68k_run_3ce :
+				currprefs.cpu_model >= 68020 && currprefs.cpu_cycle_exact ? m68k_run_2ce :
+
+				currprefs.cpu_model <= 68020 && currprefs.cpu_compatible ? m68k_run_2p :
+				currprefs.cpu_model == 68030 && currprefs.cpu_compatible ? m68k_run_2p :
+				currprefs.cpu_model >= 68040 && currprefs.cpu_compatible ? m68k_run_3p :
+
+				m68k_run_2;
+
+		run_func();
+
+	}
+       CPULOOP=1;
+
+}
+#endif 	/* RETRO HACK */
 
 void m68k_go (int may_quit)
 {

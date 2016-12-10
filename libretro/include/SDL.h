@@ -17,7 +17,7 @@ extern int Reset_Warm(void);
 
 #define HSDL_GetTicks  GetTicks 
 
-#define SDL_GetTicks  GetTicks 
+#define SDL_GetTicks  HSDL_GetTicks 
 #include "SDL_types.h"
 
 #define RGB565(r, g, b)  (((r) << (5+6)) | ((g) << 6) | (b))

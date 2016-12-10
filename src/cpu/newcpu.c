@@ -68,7 +68,7 @@ extern int CPULOOP;
 #define TRY(a) 
 #define CATCH(b) if(0)
 #define ENDTRY 
-
+#define prb 0
 #else
 
 #define RETRO_BREAK_LOOP 

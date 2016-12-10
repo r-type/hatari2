@@ -214,9 +214,9 @@ void Statusbar_SetFloppyLed(drive_index_t drive, drive_led_t state)
 	Led[drive].state = state;
 #ifdef __LIBRETRO__ 	/* RETRO HACK */
 if(drive == DRIVE_LED_A)
-	state==true?LEDA=1:LEDA=0;
+	LEDA=(state==true)?1:0;
 else if(drive == DRIVE_LED_B)
-	state==true?LEDB=1:LEDB=0;
+	LEDB=(state==true)?1:0;
 
 #endif 	/* RETRO HACK */
 }

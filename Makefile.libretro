@@ -130,10 +130,10 @@ endif
 
 CFLAGS += \
 	-std=gnu99 -funroll-loops  -fsigned-char -D__LIBRETRO__ \
-	-Wno-strict-prototypes -ffast-math -fomit-frame-pointer -fno-builtin 
+	-Wno-strict-prototypes -ffast-math -fno-builtin 
 
 ifneq ($(platform), emscripten)
-CFLAGS += -finline-functions -fno-strength-reduce
+CFLAGS += -finline-functions -fno-strength-reduce -fomit-frame-pointer
 endif
 
 CXXFLAGS  += $(CFLAGS)
@@ -193,6 +193,9 @@ $(TARGET): $(OBJECTS)
 else ifeq ($(platform), android)
 $(TARGET): $(OBJECTS)
 	$(CC) $(fpic) $(SHARED) $(INCLUDES) -o $@ $(OBJECTS)  $(LINKFLAGS)
+else ifeq ($(platform), emscripten)
+$(TARGET): $(OBJECTS)
+	$(CC) $(fpic) $(SHARED) $(INCLUDES) -o $@ $(OBJECTS)
 else
 $(TARGET): $(OBJECTS)
 	$(CC) $(fpic) $(SHARED) $(INCLUDES) -o $@ $(OBJECTS)  $(LINKFLAGS) -lpthread

@@ -300,10 +300,11 @@ void retro_run(void)
 #endif
       if(SND==1)
       {
+	audio_batch_cb(SNDBUF, snd_sampler);/*
          int16_t *p=(int16_t*)SNDBUF;
 
          for(x = 0; x < snd_sampler; x++)
-            audio_cb(*p++,*p++);
+            audio_cb(*p++,*p++);*/
       }
    }
 

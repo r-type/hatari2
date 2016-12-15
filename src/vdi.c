@@ -45,7 +45,7 @@ static Uint32 VDIIntin;
 static Uint32 VDIPtsin;
 static Uint32 VDIIntout;
 static Uint32 VDIPtsout;
-#if ENABLE_TRACING
+#if defined(ENABLE_TRACING) || defined(__EMSCRIPTEN__)//#if ENABLE_TRACING
 /* Last AES opcode & vectors */
 static Uint32 AESControl;
 static Uint32 AESGlobal;
@@ -230,7 +230,7 @@ void VDI_SetResolution(int GEMColor, int WidthRequest, int HeightRequest)
 }
 
 
-#if ENABLE_TRACING
+#if defined(ENABLE_TRACING) || defined(__EMSCRIPTEN__)//#if ENABLE_TRACING
 
 /*-----------------------------------------------------------------------*/
 
@@ -768,7 +768,7 @@ bool VDI_AES_Entry(void)
 	Uint16 call = Regs[REG_D0];
 	Uint32 TablePtr = Regs[REG_D1];
 
-#if ENABLE_TRACING
+#if defined(ENABLE_TRACING) || defined(__EMSCRIPTEN__)//#if ENABLE_TRACING
 	/* AES call? */
 	if (call == 0xC8)
 	{
@@ -785,10 +785,12 @@ bool VDI_AES_Entry(void)
 		AESAddrin  = STMemory_ReadLong(TablePtr+16);
 		AESAddrout = STMemory_ReadLong(TablePtr+20);
 		AESOpCode  = STMemory_ReadWord(AESControl);
+#if !defined(__EMSCRIPTEN__)
 		if (LOG_TRACE_LEVEL(TRACE_OS_AES))
 		{
 			AES_OpcodeInfo(TraceFile, AESOpCode);
 		}
+#endif
 		/* using same special opcode trick doesn't work for
 		 * both VDI & AES as AES functions can be called
 		 * recursively and VDI calls happen inside AES calls.
